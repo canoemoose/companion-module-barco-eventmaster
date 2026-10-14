@@ -78,7 +78,7 @@ When **Enable Live Updates** is enabled, the module subscribes to real-time noti
 
 - **Source Frozen**: Button lights when the selected source is frozen, whoever froze it (Companion, EM Toolset or the console)
 - **Screen Destination Frozen**: Button lights when any (or all) outputs of the screen destination are frozen
-- Variables: `source_N_frozen` (Yes/No), `screen_N_frozen` (Yes/Partial/No), and `source_N_label` / `screen_N_label` (name without a leading input number, for button text)
+- Variables: `source_N_frozen` (Yes/No), `screen_N_frozen` (Yes/Partial/No), and `source_N_label` / `screen_N_label` (name with the frame-appended source/input number removed, for button text)
 - Presets: _Freeze Sources_ and _Freeze Screen Destinations_ categories contain ready-made toggle buttons: they show the source name with _Freeze_, and turn blue reading _FROZEN_ while frozen
 - State follows the polling interval, and updates within ~200 ms of a change when **Enable Live Updates** is on
 

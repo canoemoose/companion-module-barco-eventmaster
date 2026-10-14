@@ -885,7 +885,7 @@ class BarcoInstance extends InstanceBase {
 				})
 				variables.push({
 					variableId: `source_${source.id + 1}_label`,
-					name: `${source.Name} - Button label (no input number)`,
+					name: `${source.Name} - Button label (appended input number removed)`,
 				})
 			})
 		}
@@ -965,13 +965,28 @@ class BarcoInstance extends InstanceBase {
 	}
 
 	/**
-	 * Button-friendly name: drops a leading input/index number such as "1 ", "01 - ", "3: " or "2." so
-	 * buttons show "CAM 1" rather than "1 CAM 1". Falls back to the full name if nothing would be left.
+	 * Button-friendly name. Event Master appends the source/input number to source names
+	 * (e.g. "CAM 3", "CAM_3", "CAM-3", "CAM (3)", "CAM [3]"). Strip a trailing number only when it
+	 * matches one of this item's own numbers (source, input or still, 1-based), so a deliberately
+	 * numbered name like "CAM 2" sitting on input 5 is left alone. Falls back to the full name.
+	 * @param {string} name
+	 * @param {number[]} ownNumbers 1-based numbers that may have been appended
 	 */
-	buttonLabel(name) {
+	buttonLabel(name, ownNumbers = []) {
 		const raw = (name || '').trim()
-		const cleaned = raw.replace(/^\d{1,3}\s*[-_.:)]\s*|^\d{1,3}\s+(?=\S)/, '').trim()
-		return cleaned || raw
+		const m = raw.match(/^(.*?)[\s_\-.:#]*[([]?\s*(\d{1,3})\s*[)\]]?$/)
+		if (!m || !m[1].trim()) return raw
+		const num = parseInt(m[2], 10)
+		if (!ownNumbers.includes(num)) return raw
+		return m[1].replace(/[\s_\-.:#([]+$/, '').trim() || raw
+	}
+
+	sourceNumbers(source) {
+		const nums = [source.id + 1]
+		if (source.InputCfgIndex !== undefined && source.InputCfgIndex >= 0) nums.push(source.InputCfgIndex + 1)
+		if (source.StillIndex !== undefined && source.StillIndex >= 0 && !(source.InputCfgIndex >= 0))
+			nums.push(source.StillIndex + 1)
+		return nums
 	}
 
 	isSourceFrozen(id) {
@@ -1026,7 +1041,7 @@ class BarcoInstance extends InstanceBase {
 		for (const source of Object.values(this.eventmasterData?.sources || {})) {
 			const values = {
 				[`source_${source.id + 1}_frozen`]: this.isSourceFrozen(source.id) ? 'Yes' : 'No',
-				[`source_${source.id + 1}_label`]: this.buttonLabel(source.Name),
+				[`source_${source.id + 1}_label`]: this.buttonLabel(source.Name, this.sourceNumbers(source)),
 			}
 			for (const [key, value] of Object.entries(values)) {
 				if (this.previousVariableValues[key] !== value) {
@@ -1042,7 +1057,7 @@ class BarcoInstance extends InstanceBase {
 					: this.isScreenFrozen(screen.id, 'any')
 						? 'Partial'
 						: 'No',
-				[`screen_${screen.id}_label`]: this.buttonLabel(screen.Name),
+				[`screen_${screen.id}_label`]: this.buttonLabel(screen.Name, [screen.id + 1]),
 			}
 			for (const [key, value] of Object.entries(values)) {
 				if (this.previousVariableValues[key] !== value) {
