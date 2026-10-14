@@ -1470,5 +1470,62 @@ module.exports = function getPresets(eventmasterData, _log) {
 		})
 	}
 
+	// Freeze toggles with frame-reported feedback
+	Object.values(eventmasterData.sources || {}).forEach((source) => {
+		if (!source || source.Name === 'no sources loaded yet') return
+		presets[`freeze_source_${source.id}`] = {
+			type: 'button',
+			category: 'Freeze Sources',
+			name: `Freeze ${source.Name}`,
+			style: {
+				text: `FRZ\\n$(eventmaster:source_${source.id + 1}_name)`,
+				size: '14',
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(40, 40, 40),
+			},
+			steps: [
+				{
+					down: [{ actionId: 'frz_source_toggle', options: { source: source.id, mode: 'toggle' } }],
+					up: [],
+				},
+			],
+			feedbacks: [
+				{
+					feedbackId: 'source_frozen',
+					options: { source: source.id },
+					style: { bgcolor: combineRgb(0, 100, 255), color: combineRgb(255, 255, 255) },
+				},
+			],
+		}
+	})
+
+	Object.values(eventmasterData.ScreenDestinations || {}).forEach((screen) => {
+		if (!screen || screen.Name === 'no destinations loaded yet') return
+		presets[`freeze_screen_${screen.id}`] = {
+			type: 'button',
+			category: 'Freeze Screen Destinations',
+			name: `Freeze ${screen.Name}`,
+			style: {
+				text: `FRZ\\n${screen.Name}`,
+				size: '14',
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(40, 40, 40),
+			},
+			steps: [
+				{
+					down: [{ actionId: 'frz_screen_toggle', options: { destId: screen.id, mode: 'toggle' } }],
+					up: [],
+				},
+			],
+			feedbacks: [
+				{
+					feedbackId: 'screen_frozen',
+					options: { destId: screen.id, match: 'any' },
+					style: { bgcolor: combineRgb(0, 100, 255), color: combineRgb(255, 255, 255) },
+				},
+			],
+		}
+	})
+
 	return presets
 }

@@ -71,6 +71,16 @@ When **Enable Live Updates** is enabled, the module subscribes to real-time noti
 - **Freeze/Unfreeze Source**: Freeze or unfreeze video sources
 - **Freeze/Unfreeze Destination**: Freeze or unfreeze destination outputs
 - **Arm/Unarm Destination**: Enable/disable destinations for transitions
+- **Freeze Source (Toggle)**: Toggle, freeze or unfreeze an input source using the freeze state reported by the frame
+- **Freeze Screen Destination (Toggle)**: Toggle, freeze or unfreeze a screen destination (toggle unfreezes if any output is frozen)
+
+#### **Freeze Feedback**
+
+- **Source Frozen**: Button lights when the selected source is frozen, whoever froze it (Companion, EM Toolset or the console)
+- **Screen Destination Frozen**: Button lights when any (or all) outputs of the screen destination are frozen
+- Variables: `source_N_frozen` (Yes/No) and `screen_N_frozen` (Yes/Partial/No)
+- Presets: _Freeze Sources_ and _Freeze Screen Destinations_ categories contain ready-made toggle buttons with feedback
+- State follows the polling interval, and updates within ~200 ms of a change when **Enable Live Updates** is on
 
 #### **AUX Destinations**
 

@@ -256,7 +256,7 @@ class BarcoInstance extends InstanceBase {
 				`Notification server initialization: listener=${listenerHost}:${port}, frame=${this.config.host}`,
 			)
 			// Use NotificationListener utility for batching and debounce
-			const events = ['ScreenDestChanged', 'AUXDestChanged']
+			const events = ['ScreenDestChanged', 'AUXDestChanged', 'SourceChanged']
 			const debounceMs = 200 // Fast feedback, but still debounced
 			this._notificationListener = new NotificationListener(this.config.host, listenerHost, port, events, debounceMs)
 			this._notificationListener.onPull = async () => {
@@ -268,6 +268,7 @@ class BarcoInstance extends InstanceBase {
 					await this.autoPopulateSourceMonitoring().catch((e) =>
 						this.log('error', `Auto-populate (notify, full) failed: ${e}`),
 					)
+					await this.refreshFreezeState()
 				} catch (e) {
 					this.log('error', `Notification pull handler error: ${e}`)
 				}
@@ -878,6 +879,10 @@ class BarcoInstance extends InstanceBase {
 					variableId: `source_${source.id + 1}_is_active`,
 					name: `${source.Name} - Is Active (PGM or PVW)`,
 				})
+				variables.push({
+					variableId: `source_${source.id + 1}_frozen`,
+					name: `${source.Name} - Frozen (Yes/No)`,
+				})
 			})
 		}
 
@@ -901,6 +906,10 @@ class BarcoInstance extends InstanceBase {
 				variables.push({
 					variableId: `screen_${screen.id}_name`,
 					name: `Screen ${screen.id} Name`,
+				})
+				variables.push({
+					variableId: `screen_${screen.id}_frozen`,
+					name: `Screen ${screen.id} Frozen (Yes/Partial/No)`,
 				})
 			})
 		}
@@ -932,6 +941,120 @@ class BarcoInstance extends InstanceBase {
 		this.autoPopulateSourceMonitoring().catch((err) =>
 			this.log('error', `Source monitoring update failed: ${err?.message || err}`),
 		)
+	}
+
+	/**
+	 * Freeze state helpers.
+	 * Source freeze comes from listSources (Freeze per source); screen freeze comes from
+	 * listDestinations (Freeze per output in DestOutMapColl). Both are cached in eventmasterData.
+	 */
+	findSourceById(id) {
+		return Object.values(this.eventmasterData?.sources || {}).find((s) => s.id === id)
+	}
+
+	findScreenById(id) {
+		return Object.values(this.eventmasterData?.ScreenDestinations || {}).find((d) => d.id === id)
+	}
+
+	isSourceFrozen(id) {
+		return (this.findSourceById(id)?.Freeze ?? 0) > 0
+	}
+
+	getScreenOutputFreezeStates(id) {
+		const screen = this.findScreenById(id)
+		const states = []
+		for (const coll of screen?.DestOutMapColl || []) {
+			for (const out of coll?.DestOutMap || []) {
+				if (out && out.Freeze !== undefined) states.push(out.Freeze > 0)
+			}
+		}
+		return states
+	}
+
+	isScreenFrozen(id, match = 'any') {
+		const states = this.getScreenOutputFreezeStates(id)
+		if (states.length === 0) return false
+		return match === 'all' ? states.every(Boolean) : states.some(Boolean)
+	}
+
+	/**
+	 * Re-read source and destination lists to pick up freeze changes, then update freeze
+	 * variables and feedbacks. Cheap: two RPC calls. Serialised so overlapping triggers coalesce.
+	 */
+	async refreshFreezeState() {
+		if (!this.eventmaster) return
+		if (this._freezeRefreshInFlight) {
+			this._freezeRefreshQueued = true
+			return
+		}
+		this._freezeRefreshInFlight = true
+		try {
+			await this.getSourcesFromEventmaster()
+			await this.getDestinationsFromEventmaster()
+			this.updateFreezeVariablesAndFeedbacks()
+		} catch (err) {
+			this.log('error', `Freeze state refresh failed: ${err?.message || err}`)
+		} finally {
+			this._freezeRefreshInFlight = false
+			if (this._freezeRefreshQueued) {
+				this._freezeRefreshQueued = false
+				this.refreshFreezeState()
+			}
+		}
+	}
+
+	updateFreezeVariablesAndFeedbacks() {
+		const changed = {}
+		for (const source of Object.values(this.eventmasterData?.sources || {})) {
+			const key = `source_${source.id + 1}_frozen`
+			const value = this.isSourceFrozen(source.id) ? 'Yes' : 'No'
+			if (this.previousVariableValues[key] !== value) {
+				changed[key] = value
+				this.previousVariableValues[key] = value
+			}
+		}
+		for (const screen of Object.values(this.eventmasterData?.ScreenDestinations || {})) {
+			const key = `screen_${screen.id}_frozen`
+			const value = this.isScreenFrozen(screen.id, 'all')
+				? 'Yes'
+				: this.isScreenFrozen(screen.id, 'any')
+					? 'Partial'
+					: 'No'
+			if (this.previousVariableValues[key] !== value) {
+				changed[key] = value
+				this.previousVariableValues[key] = value
+			}
+		}
+		if (Object.keys(changed).length > 0) this.setVariableValues(changed)
+		this.checkFeedbacks('source_frozen', 'screen_frozen')
+	}
+
+	/**
+	 * Send a freeze/unfreeze and update the cached state optimistically so the button
+	 * reacts immediately, then confirm against the frame.
+	 * @param {number} type 0 = input source, 2 = screen destination
+	 */
+	sendFreeze(type, id, mode) {
+		const params = { type, id, screengroup: 0, mode }
+		this.eventmaster.freezeDestSource(params, (err, res) => {
+			if (err) {
+				this.log('error', 'EventMaster freeze error: ' + err)
+				this.refreshFreezeState()
+				return
+			}
+			this.log('debug', `freeze type ${type} id ${id} mode ${mode}: ${JSON.stringify(res)}`)
+			if (type === 0) {
+				const source = this.findSourceById(id)
+				if (source) source.Freeze = mode
+			} else if (type === 2) {
+				const screen = this.findScreenById(id)
+				for (const coll of screen?.DestOutMapColl || []) {
+					for (const out of coll?.DestOutMap || []) if (out) out.Freeze = mode
+				}
+			}
+			this.updateFreezeVariablesAndFeedbacks()
+			this.refreshFreezeState()
+		})
 	}
 
 	/**
@@ -1187,6 +1310,9 @@ class BarcoInstance extends InstanceBase {
 		} else {
 			this.log('debug', 'No variable changes detected, skipping update')
 		}
+
+		// Freeze state (from cached source/destination lists)
+		this.updateFreezeVariablesAndFeedbacks()
 
 		// Update feedbacks to reflect current source activity
 		this.checkFeedbacks()
@@ -2380,6 +2506,71 @@ class BarcoInstance extends InstanceBase {
 			},
 		}
 
+		// Freeze Source with toggle (uses frame-reported freeze state)
+		actions['frz_source_toggle'] = {
+			name: 'Freeze Source (Toggle)',
+			description: 'Toggles freeze on an input source based on the state reported by the frame',
+			options: [
+				{
+					type: 'dropdown',
+					label: 'Source',
+					id: 'source',
+					minChoicesForSearch: 5,
+					choices: CHOICES_SOURCES,
+					default: CHOICES_SOURCES.length > 0 ? CHOICES_SOURCES[0].id : 0,
+				},
+				{
+					type: 'dropdown',
+					label: 'Mode',
+					id: 'mode',
+					choices: [
+						{ id: 'toggle', label: 'Toggle' },
+						{ id: '1', label: 'Freeze' },
+						{ id: '0', label: 'Unfreeze' },
+					],
+					default: 'toggle',
+				},
+			],
+			callback: (action) => {
+				const id = parseInt(action.options.source)
+				const mode =
+					action.options.mode === 'toggle' ? (this.isSourceFrozen(id) ? 0 : 1) : parseInt(action.options.mode)
+				this.sendFreeze(0, id, mode)
+			},
+		}
+
+		// Freeze Screen Destination with toggle
+		actions['frz_screen_toggle'] = {
+			name: 'Freeze Screen Destination (Toggle)',
+			description: 'Toggles freeze on a screen destination. Toggle unfreezes if any output is frozen.',
+			options: [
+				{
+					type: 'dropdown',
+					label: 'Screen destination',
+					id: 'destId',
+					choices: CHOICES_SCREENDESTINATIONS,
+					default: CHOICES_SCREENDESTINATIONS.length > 0 ? CHOICES_SCREENDESTINATIONS[0].id : 0,
+				},
+				{
+					type: 'dropdown',
+					label: 'Mode',
+					id: 'mode',
+					choices: [
+						{ id: 'toggle', label: 'Toggle' },
+						{ id: '1', label: 'Freeze' },
+						{ id: '0', label: 'Unfreeze' },
+					],
+					default: 'toggle',
+				},
+			],
+			callback: (action) => {
+				const id = parseInt(action.options.destId)
+				const mode =
+					action.options.mode === 'toggle' ? (this.isScreenFrozen(id, 'any') ? 0 : 1) : parseInt(action.options.mode)
+				this.sendFreeze(2, id, mode)
+			},
+		}
+
 		// List Source Main Backup
 		// actions['list_source_main_backup'] = {
 		// 	name: 'List Source Main Backup',
@@ -2843,6 +3034,65 @@ class BarcoInstance extends InstanceBase {
 				}
 				return false
 			},
+		}
+
+		// Freeze feedbacks
+		const freezeSourceChoices = Object.values(this.eventmasterData?.sources || {}).map((source) => ({
+			id: source.id,
+			label: source.Name,
+		}))
+		feedbacks['source_frozen'] = {
+			type: 'boolean',
+			name: 'Source Frozen',
+			description: 'True when the selected input source is frozen on the frame',
+			defaultStyle: {
+				bgcolor: 0x0064ff,
+				color: 0xffffff,
+			},
+			options: [
+				{
+					type: 'dropdown',
+					label: 'Source',
+					id: 'source',
+					minChoicesForSearch: 5,
+					choices: freezeSourceChoices,
+					default: freezeSourceChoices.length > 0 ? freezeSourceChoices[0].id : 0,
+				},
+			],
+			callback: (feedback) => this.isSourceFrozen(parseInt(feedback.options.source)),
+		}
+
+		const freezeScreenChoices = Object.values(this.eventmasterData?.ScreenDestinations || {})
+			.sort((a, b) => a.id - b.id)
+			.map((dest) => ({ id: dest.id, label: dest.Name }))
+		feedbacks['screen_frozen'] = {
+			type: 'boolean',
+			name: 'Screen Destination Frozen',
+			description: 'True when the selected screen destination has frozen outputs',
+			defaultStyle: {
+				bgcolor: 0x0064ff,
+				color: 0xffffff,
+			},
+			options: [
+				{
+					type: 'dropdown',
+					label: 'Screen destination',
+					id: 'destId',
+					choices: freezeScreenChoices,
+					default: freezeScreenChoices.length > 0 ? freezeScreenChoices[0].id : 0,
+				},
+				{
+					type: 'dropdown',
+					label: 'Match',
+					id: 'match',
+					choices: [
+						{ id: 'any', label: 'Any output frozen' },
+						{ id: 'all', label: 'All outputs frozen' },
+					],
+					default: 'any',
+				},
+			],
+			callback: (feedback) => this.isScreenFrozen(parseInt(feedback.options.destId), feedback.options.match || 'any'),
 		}
 
 		return feedbacks
