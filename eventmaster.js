@@ -883,6 +883,10 @@ class BarcoInstance extends InstanceBase {
 					variableId: `source_${source.id + 1}_frozen`,
 					name: `${source.Name} - Frozen (Yes/No)`,
 				})
+				variables.push({
+					variableId: `source_${source.id + 1}_label`,
+					name: `${source.Name} - Button label (no input number)`,
+				})
 			})
 		}
 
@@ -910,6 +914,10 @@ class BarcoInstance extends InstanceBase {
 				variables.push({
 					variableId: `screen_${screen.id}_frozen`,
 					name: `Screen ${screen.id} Frozen (Yes/Partial/No)`,
+				})
+				variables.push({
+					variableId: `screen_${screen.id}_label`,
+					name: `Screen ${screen.id} Button label`,
 				})
 			})
 		}
@@ -954,6 +962,16 @@ class BarcoInstance extends InstanceBase {
 
 	findScreenById(id) {
 		return Object.values(this.eventmasterData?.ScreenDestinations || {}).find((d) => d.id === id)
+	}
+
+	/**
+	 * Button-friendly name: drops a leading input/index number such as "1 ", "01 - ", "3: " or "2." so
+	 * buttons show "CAM 1" rather than "1 CAM 1". Falls back to the full name if nothing would be left.
+	 */
+	buttonLabel(name) {
+		const raw = (name || '').trim()
+		const cleaned = raw.replace(/^\d{1,3}\s*[-_.:)]\s*|^\d{1,3}\s+(?=\S)/, '').trim()
+		return cleaned || raw
 	}
 
 	isSourceFrozen(id) {
@@ -1006,23 +1024,31 @@ class BarcoInstance extends InstanceBase {
 	updateFreezeVariablesAndFeedbacks() {
 		const changed = {}
 		for (const source of Object.values(this.eventmasterData?.sources || {})) {
-			const key = `source_${source.id + 1}_frozen`
-			const value = this.isSourceFrozen(source.id) ? 'Yes' : 'No'
-			if (this.previousVariableValues[key] !== value) {
-				changed[key] = value
-				this.previousVariableValues[key] = value
+			const values = {
+				[`source_${source.id + 1}_frozen`]: this.isSourceFrozen(source.id) ? 'Yes' : 'No',
+				[`source_${source.id + 1}_label`]: this.buttonLabel(source.Name),
+			}
+			for (const [key, value] of Object.entries(values)) {
+				if (this.previousVariableValues[key] !== value) {
+					changed[key] = value
+					this.previousVariableValues[key] = value
+				}
 			}
 		}
 		for (const screen of Object.values(this.eventmasterData?.ScreenDestinations || {})) {
-			const key = `screen_${screen.id}_frozen`
-			const value = this.isScreenFrozen(screen.id, 'all')
-				? 'Yes'
-				: this.isScreenFrozen(screen.id, 'any')
-					? 'Partial'
-					: 'No'
-			if (this.previousVariableValues[key] !== value) {
-				changed[key] = value
-				this.previousVariableValues[key] = value
+			const values = {
+				[`screen_${screen.id}_frozen`]: this.isScreenFrozen(screen.id, 'all')
+					? 'Yes'
+					: this.isScreenFrozen(screen.id, 'any')
+						? 'Partial'
+						: 'No',
+				[`screen_${screen.id}_label`]: this.buttonLabel(screen.Name),
+			}
+			for (const [key, value] of Object.entries(values)) {
+				if (this.previousVariableValues[key] !== value) {
+					changed[key] = value
+					this.previousVariableValues[key] = value
+				}
 			}
 		}
 		if (Object.keys(changed).length > 0) this.setVariableValues(changed)

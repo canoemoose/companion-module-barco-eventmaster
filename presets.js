@@ -1478,8 +1478,8 @@ module.exports = function getPresets(eventmasterData, _log) {
 			category: 'Freeze Sources',
 			name: `Freeze ${source.Name}`,
 			style: {
-				text: `FRZ\\n$(eventmaster:source_${source.id + 1}_name)`,
-				size: '14',
+				text: `$(eventmaster:source_${source.id + 1}_label)\\nFreeze`,
+				size: 'auto',
 				color: combineRgb(255, 255, 255),
 				bgcolor: combineRgb(40, 40, 40),
 			},
@@ -1493,7 +1493,11 @@ module.exports = function getPresets(eventmasterData, _log) {
 				{
 					feedbackId: 'source_frozen',
 					options: { source: source.id },
-					style: { bgcolor: combineRgb(0, 100, 255), color: combineRgb(255, 255, 255) },
+					style: {
+						text: `$(eventmaster:source_${source.id + 1}_label)\\nFROZEN`,
+						bgcolor: combineRgb(0, 100, 255),
+						color: combineRgb(255, 255, 255),
+					},
 				},
 			],
 		}
@@ -1506,8 +1510,8 @@ module.exports = function getPresets(eventmasterData, _log) {
 			category: 'Freeze Screen Destinations',
 			name: `Freeze ${screen.Name}`,
 			style: {
-				text: `FRZ\\n${screen.Name}`,
-				size: '14',
+				text: `$(eventmaster:screen_${screen.id}_label)\\nFreeze`,
+				size: 'auto',
 				color: combineRgb(255, 255, 255),
 				bgcolor: combineRgb(40, 40, 40),
 			},
@@ -1521,7 +1525,11 @@ module.exports = function getPresets(eventmasterData, _log) {
 				{
 					feedbackId: 'screen_frozen',
 					options: { destId: screen.id, match: 'any' },
-					style: { bgcolor: combineRgb(0, 100, 255), color: combineRgb(255, 255, 255) },
+					style: {
+						text: `$(eventmaster:screen_${screen.id}_label)\\nFROZEN`,
+						bgcolor: combineRgb(0, 100, 255),
+						color: combineRgb(255, 255, 255),
+					},
 				},
 			],
 		}
