@@ -14,34 +14,36 @@ The module will update presets and actions every 15 seconds by default (configur
 - **Polling Interval**: How often to refresh data (in seconds, 0 to disable)
 - **Authentication Mode**: None, Operator ID, or Super User Password
 - **Auth Value**: Authentication credentials (when required)
-- **Enable Live Updates**: Enable real-time EventMaster subscriptions for instant feedback
+- **State Polling Interval**: How often tally and freeze state is read (seconds, default 1, 0 to disable)
+- **Enable Live Updates**: Let the frame push structural changes (presets, destinations) to Companion
 - **Notification Server Port**: Local port for receiving EventMaster notifications (default: 3000)
-- **Notification Listener IP**: IP address the EventMaster should send notifications to (auto-detected)
+- **Notification Listener IP**: IP address the EventMaster should send notifications to (auto-detected on the frame's subnet if empty)
+
+---
+
+### **State Polling (tally and freeze)**
+
+Tally and freeze feedback are driven by a fast, lightweight poll (default every second). It needs nothing open inbound on the Companion machine and picks up changes made anywhere: Companion, EM Toolset or the console.
+
+The `frame_connection` variable shows **Online** or **Offline**. When the frame comes back after an outage or reboot, the module refreshes everything and re-subscribes live updates automatically.
 
 ---
 
 ### **Live Updates (EventMaster Subscriptions)**
 
-When **Enable Live Updates** is enabled, the module subscribes to real-time notifications from the EventMaster device. This provides:
+Event Master only sends notifications for **structural** changes: on firmware 9.2 these are destination renames and preset save/delete. Recalls, layer changes, source renames and freeze are **not** notified, so live updates cannot drive tally or freeze; state polling does that.
 
-#### **Benefits**
+With live updates on, preset lists, names and dropdowns refresh within about half a second of a supported change instead of waiting for the slow polling interval.
 
-- **Instant Tally Updates**: Source tally/feedback buttons update immediately when content changes
-- **Real-time Variables**: Source monitoring variables update within ~200ms of changes
-- **Reduced Network Load**: Only affected destinations are queried instead of polling everything
+#### **Status variables**
 
-#### **How It Works**
-
-1. The module starts a local notification server on the configured port
-2. It subscribes to EventMaster screen and AUX destination change events
-3. When content changes, EventMaster sends notifications to your Companion system
-4. The module batches and processes notifications, updating only affected sources/destinations
-5. Tally feedback and variables update automatically without waiting for the next poll (See Sources Feedback)
+- `live_updates_status`: Off, Subscribed, Subscribe failed (with the frame's reason), or Error (e.g. port already in use)
+- `live_updates_last`: time and type of the last notification received
 
 #### **Network Requirements**
 
-- **Firewall**: The notification port (default 3000) must be open for incoming connections
-- **Routing**: EventMaster must be able to reach your Companion system's IP address
+- The frame connects **to** Companion, so the notification port must accept inbound TCP from the frame's IP (Windows: check the network profile is Private and the port is allowed inbound)
+- Subscriptions are lost when the frame restarts; the module re-subscribes when it sees the frame return, and every 10 minutes as a backstop
 
 ---
 
@@ -81,7 +83,7 @@ When **Enable Live Updates** is enabled, the module subscribes to real-time noti
 - Variables: `source_N_frozen` (Yes/No), `screen_N_frozen` (Yes/Partial/No), and `source_N_label` / `screen_N_label` (name with the frame-appended `-N` source/input number removed, e.g. `Cam 1-1` → `Cam 1`)
 - Freeze presets and dropdowns list live inputs only (stills, and destinations or user keys re-entered as sources, are left out)
 - Presets: _Freeze Sources_ and _Freeze Screen Destinations_ categories contain ready-made toggle buttons: they read _Freeze_ above the source name, and turn blue reading _FROZEN_ while frozen
-- State follows the polling interval, and updates within ~200 ms of a change when **Enable Live Updates** is on
+- State follows the state polling interval (default 1 second)
 
 #### **AUX Destinations**
 
@@ -239,9 +241,8 @@ The module provides two types of source tally feedback for buttons:
 
 #### **Real-time Updates**
 
-- Both feedback types update automatically when **Live Updates** are enabled
-- Updates occur within ~200ms of EventMaster content changes
-- Fallback to polling updates if live updates are disabled
+- Both feedback types update automatically from **State Polling** (default every second)
+- Changes made anywhere (Companion, EM Toolset, console) are picked up within one polling interval
 - Works with background layers, regular layers, and AUX content
 
 #### **Usage Examples**

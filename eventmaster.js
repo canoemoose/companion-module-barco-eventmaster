@@ -6,6 +6,19 @@ const ping = require('ping')
 const getPresets = require('./presets')
 const _ = require('lodash')
 
+// Event Master (tested on 9.2) only notifies structural changes: destination renames and preset
+// save/delete. Content changes (recalls, layer sources, freeze) are NOT notified, so live state
+// comes from the fast state poller and subscriptions only speed up structural refreshes.
+const NOTIFY_EVENTS = [
+	'ScreenDestChanged',
+	'AUXDestChanged',
+	'SourceChanged',
+	'PresetChanged',
+	'CueChanged',
+	'StillChanged',
+]
+const RESUBSCRIBE_MS = 10 * 60 * 1000
+
 class BarcoInstance extends InstanceBase {
 	constructor(internal) {
 		super(internal)
@@ -100,6 +113,7 @@ class BarcoInstance extends InstanceBase {
 			clearInterval(this.retry_interval)
 			this.retry_interval = undefined
 		}
+		this.stopStatePoller()
 		try {
 			await this.teardownNotifications()
 		} catch {
@@ -203,6 +217,7 @@ class BarcoInstance extends InstanceBase {
 			.then(() => {
 				this.refreshDefinitions()
 				this.eventmasterPoller()
+				this.startStatePoller()
 			})
 			.catch((err) => {
 				// A rejection here would otherwise become an unhandled rejection and crash the module.
@@ -211,6 +226,7 @@ class BarcoInstance extends InstanceBase {
 				// Still attempt to register definitions and start polling so the module recovers.
 				this.refreshDefinitions()
 				this.eventmasterPoller()
+				this.startStatePoller()
 			})
 		if (this.retry_interval) {
 			clearInterval(this.retry_interval)
@@ -242,43 +258,81 @@ class BarcoInstance extends InstanceBase {
 	async setupNotifications() {
 		if (!this.eventmaster) return
 		if (this.notificationActive) return
-		try {
-			// First unsubscribe to be sure we start clean
-			this.log('info', 'Unsubscribing from all notifications to start clean...')
-			this.eventmaster.unsubscribe(() => {
-				this.log('info', 'Unsubscribe completed')
-			})
+		const port = this.notificationPort || 3000
+		const listenerHost = this.getNotificationHost()
+		this.log('info', `Live updates: listening on ${listenerHost}:${port}, subscribing frame ${this.config.host}`)
+		this.setStatusVariables({ live_updates_status: 'Starting' })
 
-			const port = this.config.notification_port || this.notificationPort || 3000
-			const listenerHost = this.getNotificationHost()
-			this.log(
-				'info',
-				`Notification server initialization: listener=${listenerHost}:${port}, frame=${this.config.host}`,
-			)
-			// Use NotificationListener utility for batching and debounce
-			const events = ['ScreenDestChanged', 'AUXDestChanged', 'SourceChanged']
-			const debounceMs = 200 // Fast feedback, but still debounced
-			this._notificationListener = new NotificationListener(this.config.host, listenerHost, port, events, debounceMs)
-			this._notificationListener.onPull = async () => {
-				this._lastNotificationAt = Date.now()
-				// Only fetch content for changed screens/auxes
-				try {
-					// Always query all screens and auxes after any notification to ensure state is complete
-					this._lastUpdateSource = 'subscription-notify'
-					await this.autoPopulateSourceMonitoring().catch((e) =>
-						this.log('error', `Auto-populate (notify, full) failed: ${e}`),
-					)
-					await this.refreshFreezeState()
-				} catch (e) {
-					this.log('error', `Notification pull handler error: ${e}`)
-				}
-			}
-			this._notificationListener.start()
-			this.notificationActive = true
-		} catch (e) {
-			this.notificationActive = false
-			throw e
+		this._listenerError = null
+		const listener = new NotificationListener(this.config.host, listenerHost, port, NOTIFY_EVENTS, 500)
+		listener.onError = (err) => {
+			const msg =
+				err?.code === 'EADDRINUSE'
+					? `port ${port} is already in use on this machine - choose another notification port`
+					: err?.message || String(err)
+			this._listenerError = msg
+			this.log('error', `Live updates listener error: ${msg}`)
+			this.setStatusVariables({ live_updates_status: `Error: ${msg}` })
 		}
+		listener.onSubscribed = (ok, detail) => {
+			// A listener failure (e.g. port in use) means notifications can't arrive, whatever the frame says
+			if (this._listenerError) {
+				this.setStatusVariables({ live_updates_status: `Error: ${this._listenerError}` })
+				return
+			}
+			if (ok) {
+				this.log('info', `Live updates: subscribed (${listenerHost}:${port})`)
+				this.setStatusVariables({ live_updates_status: 'Subscribed' })
+			} else {
+				this.log('error', `Live updates: subscribe failed: ${detail}`)
+				this.setStatusVariables({ live_updates_status: `Subscribe failed: ${detail}` })
+			}
+		}
+		listener.onPull = async ({ counts }) => {
+			const types = Object.entries(counts || {})
+				.filter(([, n]) => n > 0)
+				.map(([t, n]) => `${t} x${n}`)
+				.join(', ')
+			this._lastNotificationAt = Date.now()
+			this.log('debug', `Live update received: ${types || 'unknown'}`)
+			this.setStatusVariables({
+				live_updates_last: `${new Date().toLocaleTimeString()} ${types || 'notification'}`,
+			})
+			// Structural change: refresh lists, names and definitions now rather than at the next slow poll
+			await this.refreshStructure('live update')
+		}
+		this._notificationListener = listener
+		listener.start()
+		this.notificationActive = true
+
+		// Subscriptions are lost when the frame restarts; renew them periodically as a backstop
+		if (this._resubscribeTimer) clearInterval(this._resubscribeTimer)
+		this._resubscribeTimer = setInterval(() => this.resubscribeNotifications('periodic'), RESUBSCRIBE_MS)
+	}
+
+	resubscribeNotifications(reason) {
+		if (!this.notificationActive || !this._notificationListener) return
+		this.log('debug', `Live updates: re-subscribing (${reason})`)
+		this._notificationListener.resubscribe()
+	}
+
+	async refreshStructure(reason) {
+		if (this._structureRefreshInFlight) return
+		this._structureRefreshInFlight = true
+		try {
+			this._lastUpdateSource = reason
+			await this.getAllDataFromEventmaster()
+			this.refreshDefinitions()
+		} catch (e) {
+			this.log('error', `Refresh (${reason}) failed: ${e?.message || e}`)
+		} finally {
+			this._structureRefreshInFlight = false
+		}
+	}
+
+	setStatusVariables(values) {
+		this._statusVariables = { ...(this._statusVariables || {}), ...values }
+		this.setVariableValues(values)
 	}
 
 	isLikelySame24Subnet(a, b) {
@@ -307,51 +361,110 @@ class BarcoInstance extends InstanceBase {
 	}
 
 	async teardownNotifications() {
-		if (!this.eventmaster) return
+		if (this._resubscribeTimer) {
+			clearInterval(this._resubscribeTimer)
+			this._resubscribeTimer = null
+		}
 		if (!this.notificationActive) return
+		this.notificationActive = false
+		const listener = this._notificationListener
+		this._notificationListener = null
 		try {
-			const port = this.config.notification_port || this.notificationPort || 3004
-			const listenerHost = this.getNotificationHost()
-			// Best-effort unsubscribe
-			await new Promise((resolve) => {
-				try {
-					this.eventmaster.unsubscribe(listenerHost, port, ['ScreenDestChanged', 'AUXDestChanged'], () => resolve())
-				} catch {
-					resolve()
-				}
-			})
-			this.notificationActive = false
-			if (this._notifyTimer) {
-				clearTimeout(this._notifyTimer)
-				this._notifyTimer = null
-			}
-			if (this._notifyNoEventTimer) {
-				clearTimeout(this._notifyNoEventTimer)
-				this._notifyNoEventTimer = null
-			}
+			if (listener) await listener.stop()
 		} catch {
 			// ignore teardown errors
 		}
+		this.setStatusVariables({ live_updates_status: 'Off' })
 	}
 
+	/**
+	 * Local IP the frame should send notifications to: the configured one, else the interface on
+	 * the same /24 as the frame, else the first non-internal IPv4.
+	 */
 	getNotificationHost() {
 		if (this.notificationHost) return this.notificationHost
 		if (this.config?.notification_host) return this.config.notification_host
-		// Auto-detect a likely local IPv4 address
+		const candidates = []
 		try {
 			const ifaces = os.networkInterfaces()
 			for (const name of Object.keys(ifaces)) {
 				for (const iface of ifaces[name] || []) {
-					if (iface.family === 'IPv4' && !iface.internal) {
-						return iface.address
-					}
+					if (iface.family === 'IPv4' && !iface.internal) candidates.push(iface.address)
 				}
 			}
 		} catch {
 			// ignore
 		}
-		// Fallback to localhost
+		const sameSubnet = candidates.find((ip) => this.isLikelySame24Subnet(ip, this.config?.host))
+		if (sameSubnet) return sameSubnet
+		if (candidates.length > 0) {
+			this.log(
+				'warn',
+				`Live updates: no local interface on the frame's subnet; using ${candidates[0]}. Set the listener IP in the config if notifications don't arrive.`,
+			)
+			return candidates[0]
+		}
 		return '127.0.0.1'
+	}
+
+	/**
+	 * Fast state poller: reads source/destination lists (freeze) and destination content (tally)
+	 * every few hundred ms to a few seconds. Needs nothing inbound on this machine. Also detects
+	 * the frame going away and coming back (e.g. a reboot), and then re-subscribes and refreshes.
+	 */
+	startStatePoller() {
+		this.stopStatePoller()
+		const secs = this.config?.statePollInterval === undefined ? 1 : Number(this.config.statePollInterval)
+		if (!secs || secs <= 0) {
+			this.log('debug', 'State polling disabled')
+			return
+		}
+		const intervalMs = Math.max(500, Math.round(secs * 1000))
+		this.log('debug', `Starting state poller every ${intervalMs}ms`)
+		this._stateFailures = 0
+		this.state_poll_interval = setInterval(() => this.statePollTick(), intervalMs)
+	}
+
+	stopStatePoller() {
+		if (this.state_poll_interval) {
+			clearInterval(this.state_poll_interval)
+			this.state_poll_interval = undefined
+		}
+	}
+
+	async statePollTick() {
+		if (!this.eventmaster || this._stateTickInFlight) return
+		this._stateTickInFlight = true
+		try {
+			// Lightweight reachability + freeze read in one call; failures are logged once, not every tick
+			const res = await new Promise((resolve, reject) => {
+				this.eventmaster.listSources((err, result) => (err ? reject(err) : resolve(result)))
+			})
+			if (!Array.isArray(res?.response)) throw new Error('no source list in response')
+
+			const wasOffline = this._stateFailures >= 3
+			this._stateFailures = 0
+			this.eventmasterData.sources = this.convertArrayToObject(res.response, 'Name')
+			if (this._statusVariables?.frame_connection !== 'Online' && !wasOffline) {
+				this.setStatusVariables({ frame_connection: 'Online' })
+			}
+			if (wasOffline) {
+				this.log('info', 'Frame reachable again: refreshing and re-subscribing')
+				this.setStatusVariables({ frame_connection: 'Online' })
+				this.resubscribeNotifications('frame back online')
+				await this.refreshStructure('frame back online')
+			}
+			await this.getDestinationsFromEventmaster()
+			await this.autoPopulateSourceMonitoring() // tally + freeze variables and feedbacks
+		} catch (err) {
+			this._stateFailures = (this._stateFailures || 0) + 1
+			if (this._stateFailures === 3) {
+				this.log('warn', `Frame not responding to state polls: ${err?.message || err}`)
+				this.setStatusVariables({ frame_connection: 'Offline' })
+			}
+		} finally {
+			this._stateTickInFlight = false
+		}
 	}
 
 	async getFrameSettings() {
@@ -545,7 +658,7 @@ class BarcoInstance extends InstanceBase {
 				width: 12,
 				label: 'Information',
 				value:
-					'This module uses the official EventMaster JSON API. If the status is OK, it ONLY means that the IP configured answers on icmp ping. The module will update presets and actions every 15 seconds ',
+					'This module uses the official EventMaster JSON API. If the status is OK, it ONLY means that the IP configured answers on icmp ping. Tally and freeze feedback follow the state polling interval; presets, names and actions refresh on the slower polling interval, or immediately on supported changes when live updates are on.',
 			},
 			{
 				type: 'textinput',
@@ -563,9 +676,20 @@ class BarcoInstance extends InstanceBase {
 				default: 15,
 			},
 			{
+				type: 'number',
+				id: 'statePollInterval',
+				label: 'State polling interval (seconds) for tally and freeze feedback (0 to disable)',
+				width: 6,
+				default: 1,
+				min: 0,
+				max: 60,
+				step: 0.5,
+			},
+			{
 				type: 'checkbox',
 				id: 'enable_notifications',
-				label: 'Enable live updates (EventMaster subscriptions)',
+				label:
+					'Enable live updates (frame pushes preset and destination changes; needs inbound access to this machine)',
 				width: 6,
 				default: false,
 			},
@@ -618,6 +742,7 @@ class BarcoInstance extends InstanceBase {
 	async destroy() {
 		if (this.retry_interval) clearInterval(this.retry_interval)
 		if (this.polling_interval) clearInterval(this.polling_interval)
+		this.stopStatePoller()
 		// Teardown notifications if active
 		try {
 			await this.teardownNotifications()
@@ -932,6 +1057,12 @@ class BarcoInstance extends InstanceBase {
 			})
 		}
 
+		variables.push(
+			{ variableId: 'frame_connection', name: 'Frame connection (Online/Offline, from state polling)' },
+			{ variableId: 'live_updates_status', name: 'Live updates status' },
+			{ variableId: 'live_updates_last', name: 'Last live update received' },
+		)
+
 		// Only update variable definitions if they've changed
 		const variableDefinitionsHash = JSON.stringify(variables)
 		if (this.lastVariableDefinitionsHash !== variableDefinitionsHash) {
@@ -941,6 +1072,7 @@ class BarcoInstance extends InstanceBase {
 			// Clear variable tracking only when definitions actually change
 			this.previousVariableValues = {}
 			this.lastVariableDefinitionsHash = variableDefinitionsHash
+			if (this._statusVariables) this.setVariableValues(this._statusVariables)
 		}
 
 		// Auto-populate source monitoring variables.
