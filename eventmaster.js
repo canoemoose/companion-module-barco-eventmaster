@@ -975,6 +975,14 @@ class BarcoInstance extends InstanceBase {
 		return raw.replace(/-\d+$/, '').trim() || raw
 	}
 
+	/**
+	 * Only live inputs can be meaningfully frozen: exclude stills and destinations or user keys
+	 * that appear in the source list because they are re-entered as sources.
+	 */
+	isFreezableSource(source) {
+		return !!source && source.InputCfgIndex >= 0 && !(source.DestIndex >= 0) && !(source.UserKeyIndex >= 0)
+	}
+
 	isSourceFrozen(id) {
 		return (this.findSourceById(id)?.Freeze ?? 0) > 0
 	}
@@ -2534,6 +2542,9 @@ class BarcoInstance extends InstanceBase {
 		}
 
 		// Freeze Source with toggle (uses frame-reported freeze state)
+		const CHOICES_FREEZE_SOURCES = Object.values(this.eventmasterData.sources)
+			.filter((source) => this.isFreezableSource(source))
+			.map((source) => ({ id: source.id, label: this.buttonLabel(source.Name) }))
 		actions['frz_source_toggle'] = {
 			name: 'Freeze Source (Toggle)',
 			description: 'Toggles freeze on an input source based on the state reported by the frame',
@@ -2543,8 +2554,8 @@ class BarcoInstance extends InstanceBase {
 					label: 'Source',
 					id: 'source',
 					minChoicesForSearch: 5,
-					choices: CHOICES_SOURCES,
-					default: CHOICES_SOURCES.length > 0 ? CHOICES_SOURCES[0].id : 0,
+					choices: CHOICES_FREEZE_SOURCES,
+					default: CHOICES_FREEZE_SOURCES.length > 0 ? CHOICES_FREEZE_SOURCES[0].id : 0,
 				},
 				{
 					type: 'dropdown',
@@ -3064,10 +3075,12 @@ class BarcoInstance extends InstanceBase {
 		}
 
 		// Freeze feedbacks
-		const freezeSourceChoices = Object.values(this.eventmasterData?.sources || {}).map((source) => ({
-			id: source.id,
-			label: source.Name,
-		}))
+		const freezeSourceChoices = Object.values(this.eventmasterData?.sources || {})
+			.filter((source) => this.isFreezableSource(source))
+			.map((source) => ({
+				id: source.id,
+				label: this.buttonLabel(source.Name),
+			}))
 		feedbacks['source_frozen'] = {
 			type: 'boolean',
 			name: 'Source Frozen',

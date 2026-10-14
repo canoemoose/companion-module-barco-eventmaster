@@ -1472,7 +1472,9 @@ module.exports = function getPresets(eventmasterData, _log) {
 
 	// Freeze toggles with frame-reported feedback
 	Object.values(eventmasterData.sources || {}).forEach((source) => {
+		// Live inputs only: skip stills, and destinations/user keys re-entered as sources
 		if (!source || source.Name === 'no sources loaded yet') return
+		if (!(source.InputCfgIndex >= 0) || source.DestIndex >= 0 || source.UserKeyIndex >= 0) return
 		presets[`freeze_source_${source.id}`] = {
 			type: 'button',
 			category: 'Freeze Sources',
