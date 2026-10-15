@@ -61,16 +61,17 @@ is Matt's call; ask before changing `.gitignore`.
 
 ## Findings from the first frame (confirmed by Matt)
 
-**The next test session is on a different frame.** Treat everything in this section as what _that_
-frame did, not as facts about the next one. Firmware, cards, network and notification behaviour may
-all differ, so the kit must detect and record them rather than assume.
+**The next test session is on a different frame**, but both frames run the latest v9 firmware and
+Companion runs on the **same PC**, so these findings are expected to carry across. The kit records
+the frame's firmware to confirm that, rather than assuming it. The test frame will be **blank**:
+see Frame prep below.
 
 | Item              | Value                                                                                    |
 | ----------------- | ---------------------------------------------------------------------------------------- |
-| Frame             | Barco Event Master E2, firmware **9.2.x** (first frame only)                             |
+| Frame             | Barco Event Master E2, latest v9 firmware (9.2.x); test frame is the same version        |
 | Frame IP          | 192.168.0.180                                                                            |
-| Companion PC      | Windows, 192.168.0.15, network profile set to Private (may not be the same PC next time) |
-| Notification port | 3000 (inbound firewall rule added on that PC, RemoteAddress **Any**)                     |
+| Companion PC      | Windows, 192.168.0.15, network profile set to Private. **Same PC for the test session**  |
+| Notification port | 3000 (inbound firewall rule already in place, RemoteAddress **Any**)                     |
 | MVR card          | No Gen 2 HDMI card on that frame. **TSL is ruled out regardless**: it can't carry freeze |
 
 Diagnosis history for live updates (so it isn't repeated):
@@ -112,23 +113,43 @@ before subscribing, in case of a previous aborted run.
 - **Q4.** Does `freezeDestSource` type 0 (source) affect the `Freeze` field on layers in `listContent`?
   (Existing tally code excludes frozen layers.)
 
+## Frame prep (blank frame)
+
+The test frame is blank, so Matt programs a minimum show in EMT before running the kit. The kit
+should ship a one-page `FRAME-PREP.md` with this checklist, designed to take ~5 minutes, and the
+readiness check above confirms it. Proposed minimum (Claude Code: refine against what each test
+step actually needs, and keep it as small as possible):
+
+- **Inputs/sources:** at least **2 live input sources** (ideally with real signal, e.g. a laptop or test
+  generator; record in the results whether inputs had signal, as freeze/tally behaviour without signal
+  is unverified). Leave the auto-generated names, so the `-N` naming check is meaningful.
+- **Screen destination:** **1** screen with **2 layers**, output assigned.
+- **Aux:** **1** aux destination (for `AUXDestChanged` and aux freeze checks).
+- **Re-entry source:** add the screen destination as a source, to re-check the
+  `DestIndex >= 0` filter (optional; skip if it costs time).
+- **Presets:** **2** presets on the screen (different layer sources), for recall/take steps.
+- **Still:** optional; only if the still steps are kept.
+- Programming steps that themselves trigger notifications (e.g. saving presets, renaming destinations)
+  can double as positive controls if the listener is already running: consider an optional "prep with
+  listener on" mode so setup time also produces results.
+
 ## Test kit spec
 
 Deliver a single folder Matt can copy to the Companion PC, e.g. `frame-test-kit/`:
 
 1. **`Run-FrameTests.ps1`**: one guided script. Config block at top (frame IP, local IP, port,
    output path). Phases:
-   - **Nothing hardcoded.** Frame IP, local IP (auto-pick the interface on the frame's subnet, show it,
-     allow override), port and auth (operator ID / super user password, if the frame uses them) are
-     prompted or taken from parameters. No values from the first frame.
+   - **Frame IP prompted** (the test frame's IP may differ). Local IP auto-picked on the frame's subnet
+     (show it, allow override); port defaults to 3000; auth (operator ID / super user password) optional.
    - **Frame identification** (read-only, first thing, saved to results): model, firmware/OS version,
-     MAC (`getFrameSettings`), card/slot info if the API exposes it (check `listInputs`/`listOutputs`
-     or frame settings), counts of sources/screens/auxes. The 9.2 findings only transfer if this matches.
+     MAC (`getFrameSettings`), counts of inputs/sources/screens/auxes/presets/stills.
+   - **Readiness check** (read-only): confirm the minimum programming from Frame prep exists and list
+     exactly what's missing, so frame time isn't wasted on steps that can't work. Steps whose
+     prerequisites are missing are skipped and marked as such in the results.
    - **Preflight** (no frame changes): frame reachable on 9999 (a read-only JSON call) and 9876 (TCP
-     connect only); local port free; network profile and an inbound firewall rule for the port. This
-     may be a different PC: offer to set the profile to Private and add the rule (admin), and record
-     what was changed so cleanup can undo it. Warn that the Companion EM connection must be disabled
-     for the duration.
+     connect only); local port free; network profile Private and the inbound rule for the port present
+     (already set up on this PC: verify only, and say what to fix if not). Warn that the Companion EM
+     connection must be disabled for the duration.
    - **Naming/filter checks** (read-only): report source names that don't end in `-<digits>`, and
      sources with `DestIndex >= 0` or `UserKeyIndex >= 0`, to confirm the label and filter rules hold
      on this frame.
@@ -151,7 +172,7 @@ Deliver a single folder Matt can copy to the Companion PC, e.g. `frame-test-kit/
      Also ask the operator to open EMT's Ctrl+O XML log and save it, to capture EMT's own outbound
      messages (handshake/GUID format).
    - **Cleanup (always, including on Ctrl+C / error):** unsubscribe everything subscribed, stop
-     listener, stop pktmon, close sockets. Offer to undo any PC changes the preflight made (firewall rule, network profile).
+     listener, stop pktmon, close sockets. Leave the PC's firewall rule and network profile as they are (they're needed for live updates).
    - **Output:** one results folder named with frame model, firmware and timestamp: `results.md`
      (frame identification, action × notification matrix, XML received yes/no, snapshot diffs,
      naming/filter checks) plus raw logs and the pcap. Matt sends this back.
@@ -165,9 +186,9 @@ a single phase.
 
 ## Decision tree after the session
 
-If the test frame's firmware differs from 9.2, note that results may not hold for the first frame
-(or for show frames on other versions). Any implementation should degrade gracefully: detect what
-the connected frame supports rather than assuming.
+Both frames run the latest v9, so results should apply to show frames on that version. If the
+recorded firmware turns out to differ, flag it. Any implementation should still degrade gracefully
+on older firmware rather than assume push support.
 
 - **XML 9876 pushes freeze and layer/PGM state:** implement an XML push client in the module (persistent
   TCP, handshake as captured, reconnect with backoff, parse deltas → update freeze + tally state,
