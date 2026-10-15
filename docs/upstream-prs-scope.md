@@ -17,6 +17,8 @@ Upstream base: v4.4.5, commit `9f84de7`. Fork branch: `feature/freeze-toggle-fee
   evidence. A claim that can't be reproduced on hardware doesn't go in a PR.
 - Fork-only, never upstreamed: `frame-test-kit/` (incl. `module-check.js`), `tools/package.js`, `docs/`,
   `HANDOFF.md`, `CLAUDE.md`, the `-ee.N` (formerly `-freeze.N`) version tags, `package-lock.json`. Don't touch `yarn.lock`.
+- **PRs change no version numbers.** In this repo only the maintainer bumps versions, in separate
+  release commits; the one outside contributor PR (#123) changed none (checked 2026-10-15).
 - No XML (9876) in this module.
 
 ## Proposed PRs
