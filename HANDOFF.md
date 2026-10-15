@@ -31,8 +31,8 @@ Then, depending on results, implement the winning approach in the module (see De
 ## Hard constraints
 
 - **No regular polling of a show-critical frame.** Matt does not want the module adding periodic
-  load. The fast state poller exists but is **off by default** (`statePollInterval` = 0) and must stay
-  opt-in. Prefer push or event-driven approaches.
+  load. The fast state poller has been **removed** (Matt's call, 2026-10-15). Prefer push or
+  event-driven approaches.
 - The test kit itself must not change frame state. Only `subscribe` / `unsubscribe` and read-only
   calls; anything that changes the show is done by the operator by hand when prompted.
 - Companion host is **Windows**. The kit should run in Windows PowerShell 5.1 with no installs
@@ -59,9 +59,9 @@ Then, depending on results, implement the winning approach in the module (see De
   later successful subscribe; teardown unsubscribes the same port/events and stops the server (fixes
   stock 3000 vs 3004 mismatch); listener IP auto-detect prefers the frame's subnet; resubscribe every
   10 min and when the frame returns after an outage. Notifications trigger a structural refresh.
-- Optional fast state poller (`statePollInterval`, default 0/off) with outage detection, single log
-  line per outage, `frame_connection` variable.
-- Status variables: `frame_connection`, `live_updates_status`, `live_updates_last`.
+- Fast state poller and its `frame_connection` variable: added, then **removed** on 2026-10-15. Its
+  setting also stopped connections made on 4.4.5 saving in Companion 5 (empty number field).
+- Status variables: `live_updates_status`, `live_updates_last`.
 - Original Freeze/Unfreeze actions untouched (backwards compatible).
 
 Tests: `npm test` runs `test/freeze.test.js` (39 checks) and `test/live.test.js` (29 checks) against an
@@ -233,7 +233,8 @@ on older firmware rather than assume push support.
 - `eventmaster.js`: module. Freeze helpers (`buttonLabel`, `isFreezableSource`, `isSourceFrozen`,
   `isScreenFrozen`, `refreshFreezeState`, `sendFreeze`); live updates (`setupNotifications`,
   `teardownNotifications`, `resubscribeNotifications`, `refreshStructure`, `getNotificationHost`);
-  state poller (`startStatePoller`, `statePollTick`); source tally (`autoPopulateSourceMonitoring`).
+  live update routing (`planLiveUpdate`, `applyLiveUpdate`); source tally
+  (`autoPopulateSourceMonitoring`, `fetchDestinationContent`).
   Actions `frz_source_toggle`, `frz_screen_toggle`; feedbacks `source_frozen`, `screen_frozen`.
 - `tools/notification-listener.js`: subscription listener (debounce, onPull/onSubscribed/onError).
 - `presets.js`: freeze presets at the end.

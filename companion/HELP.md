@@ -14,26 +14,17 @@ The module will update presets and actions every 15 seconds by default (configur
 - **Polling Interval**: How often to refresh data (in seconds, 0 to disable)
 - **Authentication Mode**: None, Operator ID, or Super User Password
 - **Auth Value**: Authentication credentials (when required)
-- **Fast State Polling**: Optional fast read of tally and freeze state (seconds; off by default)
-- **Enable Live Updates**: Let the frame push structural changes (presets, destinations) to Companion
+- **Enable Live Updates**: Let the frame notify Companion of changes (freeze, takes, names, presets)
 - **Notification Server Port**: Local port for receiving EventMaster notifications (default: 3000)
 - **Notification Listener IP**: IP address the EventMaster should send notifications to (auto-detected on the frame's subnet if empty)
 
 ---
 
-### **State Polling (tally and freeze)**
-
-Fast state polling is **off by default**. When off, tally and freeze update immediately for changes made from Companion and otherwise on the main polling interval. When enabled (e.g. 1 second) it picks up changes made anywhere (Companion, EM Toolset or the console) and needs nothing open inbound on the Companion machine, at the cost of extra requests to the frame.
-
-The `frame_connection` variable shows **Online** or **Offline**. When the frame comes back after an outage or reboot, the module refreshes everything and re-subscribes live updates automatically.
-
----
-
 ### **Live Updates (EventMaster Subscriptions)**
 
-Event Master only sends notifications for **structural** changes: on firmware 9.2 these are destination renames and preset save/delete. Recalls, layer changes, source renames and freeze are **not** notified, so live updates cannot drive tally or freeze; state polling does that.
+With live updates on, the frame notifies Companion when something changes, from anywhere (Companion, EM Toolset or the console), and the module re-reads only what changed. On firmware 9.2 this covers source freeze, screen freeze, takes and recalls (tally), aux changes, renames and preset changes. Feedback follows within about half a second. Nothing is polled beyond the normal polling interval.
 
-With live updates on, preset lists, names and dropdowns refresh within about half a second of a supported change instead of waiting for the slow polling interval.
+Without live updates, changes made outside Companion show at the next polling interval.
 
 #### **Status variables**
 
@@ -43,7 +34,7 @@ With live updates on, preset lists, names and dropdowns refresh within about hal
 #### **Network Requirements**
 
 - The frame connects **to** Companion, so the notification port must accept inbound TCP from the frame's IP (Windows: check the network profile is Private and the port is allowed inbound)
-- Subscriptions are lost when the frame restarts; the module re-subscribes when it sees the frame return, and every 10 minutes as a backstop
+- Subscriptions are lost when the frame restarts; the module re-subscribes every 10 minutes, so after a frame reboot live updates resume within 10 minutes (or disable and re-enable the connection to resume at once)
 
 ---
 
@@ -83,7 +74,7 @@ With live updates on, preset lists, names and dropdowns refresh within about hal
 - Variables: `source_N_frozen` (Yes/No), `screen_N_frozen` (Yes/Partial/No), and `source_N_label` / `screen_N_label` (name with the frame-appended `-N` source/input number removed, e.g. `Cam 1-1` → `Cam 1`)
 - Freeze presets and dropdowns list live inputs only (stills, and destinations or user keys re-entered as sources, are left out)
 - Presets: _Freeze Sources_ and _Freeze Screen Destinations_ categories contain ready-made toggle buttons: they read _Freeze_ above the source name, and turn blue reading _FROZEN_ while frozen
-- Freeze made from Companion shows immediately; external changes follow the polling interval (or fast state polling if enabled)
+- Freeze made from Companion shows immediately; changes made elsewhere show within about half a second with live updates on, otherwise at the next polling interval
 
 #### **AUX Destinations**
 
@@ -241,7 +232,7 @@ The module provides two types of source tally feedback for buttons:
 
 #### **Real-time Updates**
 
-- Both feedback types update on the main polling interval, or faster with **Fast State Polling** enabled
+- Both feedback types update within about half a second with **Live Updates** on, otherwise on the main polling interval
 - Changes made anywhere (Companion, EM Toolset, console) are picked up within one polling interval
 - Works with background layers, regular layers, and AUX content
 

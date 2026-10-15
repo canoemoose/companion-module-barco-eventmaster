@@ -150,7 +150,7 @@ server.listen(9999, '127.0.0.1', async () => {
 	const EventMaster = require(path.join(MOD, 'node_modules/barco-eventmaster'))
 	const mk = (cfg) => {
 		const inst = new Captured({})
-		inst.config = { host: '127.0.0.1', statePollInterval: 0.5, ...cfg }
+		inst.config = { host: '127.0.0.1', ...cfg }
 		inst.previousVariableValues = {}
 		inst.frameVariableDefinitions = []
 		inst.CHOICES_TESTPATTERN = []
@@ -172,55 +172,26 @@ server.listen(9999, '127.0.0.1', async () => {
 		return inst
 	}
 
-	// --- Fast state polling
 	const a = mk({})
 	await a.getAllDataFromEventmaster()
 	a.refreshDefinitions()
-	a.startStatePoller()
-	check('state poller started at 500ms', !!a.state_poll_interval)
-	check('frame_connection Online after first tick', await until(() => a.vars.frame_connection === 'Online'))
-	frame.sources[0].Freeze = 1 // frozen from EM Toolset; no notification
-	check('external freeze picked up by state poll within ~1s', await until(() => a.vars.source_1_frozen === 'Yes', 1500))
-	frame.content[0].pgmSrc = 0 // source taken to program elsewhere
-	check(
-		'external tally change picked up by state poll',
-		await until(() => (a.vars.source_1_pgm_destinations || '').includes('LED MAIN'), 1500),
-	)
 
-	// no overlapping ticks
-	const t0 = frame.calls.length
-	await wait(1600)
-	const ticks = frame.calls.slice(t0).filter((c) => c.method === 'listSources').length
-	check(`poll rate sane (${ticks} source reads in 1.6s at 500ms)`, ticks >= 2 && ticks <= 4)
-
-	// --- Frame dropout and recovery
-	let resub = 0
-	a.resubscribeNotifications = () => resub++
-	let refreshed = 0
-	const origRS = a.refreshStructure.bind(a)
-	a.refreshStructure = async (r) => {
-		refreshed++
-		return origRS(r)
+	// --- Config form: Companion 5 refuses to save while a number field has no value, and existing
+	// connections keep the config they were created with. This is the stored config of a connection
+	// made on stock 4.4.5; every number field must have a value in it.
+	const fields = a.getConfigFields()
+	check('no fast state polling setting', !fields.some((fl) => /statePoll/i.test(fl.id)))
+	const stock445 = {
+		host: '192.168.0.175',
+		pollingInterval: 15,
+		enable_notifications: true,
+		notification_port: 3000,
+		auth_mode: 'none',
+		notification_host: '192.168.0.15',
 	}
-	frame.up = false
-	check('frame_connection Offline after outage', await until(() => a.vars.frame_connection === 'Offline', 3000))
-	await wait(1200)
-	const warns = a.logs.filter(([l, m]) => l === 'warn' && m.includes('not responding')).length
-	check(`outage logged once, not every tick (${warns})`, warns === 1)
-	frame.up = true
-	check('frame_connection Online after recovery', await until(() => a.vars.frame_connection === 'Online', 2000))
-	check('recovery triggers resubscribe + structure refresh', resub === 1 && refreshed >= 1)
-	a.stopStatePoller()
-
-	// --- State polling disabled
-	const z = mk({ statePollInterval: 0 })
-	z.startStatePoller()
-	check('statePollInterval 0 disables poller', !z.state_poll_interval)
-	const u = mk({})
-	delete u.config.statePollInterval
-	u.startStatePoller()
-	check('missing setting (existing configs) defaults to off', !u.state_poll_interval)
-	u.stopStatePoller()
+	const unset = fields.filter((fl) => fl.type === 'number' && stock445[fl.id] === undefined).map((fl) => fl.id)
+	check(`stock 4.4.5 config has a value for every number field (${unset.join(', ') || 'none missing'})`, !unset.length)
+	check('no poller methods left', a.startStatePoller === undefined && a.statePollTick === undefined)
 
 	// --- Live updates
 	const b = mk({ enable_notifications: true, notification_port: 3101, notification_host: '127.0.0.1' })
@@ -391,9 +362,14 @@ server.listen(9999, '127.0.0.1', async () => {
 	const ids = a.varDefs.map((v) => v.variableId)
 	check(
 		'status variables defined',
-		['frame_connection', 'live_updates_status', 'live_updates_last'].every((v) => ids.includes(v)),
+		['live_updates_status', 'live_updates_last'].every((v) => ids.includes(v)),
 	)
-	check('status values re-applied after definitions change', a.vars.frame_connection === 'Online')
+	check('frame_connection variable gone with the poller', !ids.includes('frame_connection'))
+	a.setStatusVariables({ live_updates_status: 'Subscribed' })
+	a.lastVariableDefinitionsHash = null
+	a.vars.live_updates_status = undefined
+	a.updateDestinationVariables()
+	check('status values re-applied after definitions change', a.vars.live_updates_status === 'Subscribed')
 
 	console.log(fails ? `\n${fails} FAILED` : '\nAll passed')
 	server.close()

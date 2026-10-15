@@ -117,7 +117,6 @@ class BarcoInstance extends InstanceBase {
 			clearInterval(this.retry_interval)
 			this.retry_interval = undefined
 		}
-		this.stopStatePoller()
 		try {
 			await this.teardownNotifications()
 		} catch {
@@ -221,7 +220,6 @@ class BarcoInstance extends InstanceBase {
 			.then(() => {
 				this.refreshDefinitions()
 				this.eventmasterPoller()
-				this.startStatePoller()
 			})
 			.catch((err) => {
 				// A rejection here would otherwise become an unhandled rejection and crash the module.
@@ -230,7 +228,6 @@ class BarcoInstance extends InstanceBase {
 				// Still attempt to register definitions and start polling so the module recovers.
 				this.refreshDefinitions()
 				this.eventmasterPoller()
-				this.startStatePoller()
 			})
 		if (this.retry_interval) {
 			clearInterval(this.retry_interval)
@@ -480,66 +477,6 @@ class BarcoInstance extends InstanceBase {
 		return '127.0.0.1'
 	}
 
-	/**
-	 * Fast state poller: reads source/destination lists (freeze) and destination content (tally)
-	 * every few hundred ms to a few seconds. Needs nothing inbound on this machine. Also detects
-	 * the frame going away and coming back (e.g. a reboot), and then re-subscribes and refreshes.
-	 */
-	startStatePoller() {
-		this.stopStatePoller()
-		const secs = this.config?.statePollInterval === undefined ? 0 : Number(this.config.statePollInterval)
-		if (!secs || secs <= 0) {
-			this.log('debug', 'State polling disabled')
-			return
-		}
-		const intervalMs = Math.max(500, Math.round(secs * 1000))
-		this.log('debug', `Starting state poller every ${intervalMs}ms`)
-		this._stateFailures = 0
-		this.state_poll_interval = setInterval(() => this.statePollTick(), intervalMs)
-	}
-
-	stopStatePoller() {
-		if (this.state_poll_interval) {
-			clearInterval(this.state_poll_interval)
-			this.state_poll_interval = undefined
-		}
-	}
-
-	async statePollTick() {
-		if (!this.eventmaster || this._stateTickInFlight) return
-		this._stateTickInFlight = true
-		try {
-			// Lightweight reachability + freeze read in one call; failures are logged once, not every tick
-			const res = await new Promise((resolve, reject) => {
-				this.eventmaster.listSources((err, result) => (err ? reject(err) : resolve(result)))
-			})
-			if (!Array.isArray(res?.response)) throw new Error('no source list in response')
-
-			const wasOffline = this._stateFailures >= 3
-			this._stateFailures = 0
-			this.eventmasterData.sources = this.convertArrayToObject(res.response, 'Name')
-			if (this._statusVariables?.frame_connection !== 'Online' && !wasOffline) {
-				this.setStatusVariables({ frame_connection: 'Online' })
-			}
-			if (wasOffline) {
-				this.log('info', 'Frame reachable again: refreshing and re-subscribing')
-				this.setStatusVariables({ frame_connection: 'Online' })
-				this.resubscribeNotifications('frame back online')
-				await this.refreshStructure('frame back online')
-			}
-			await this.getDestinationsFromEventmaster()
-			await this.autoPopulateSourceMonitoring() // tally + freeze variables and feedbacks
-		} catch (err) {
-			this._stateFailures = (this._stateFailures || 0) + 1
-			if (this._stateFailures === 3) {
-				this.log('warn', `Frame not responding to state polls: ${err?.message || err}`)
-				this.setStatusVariables({ frame_connection: 'Offline' })
-			}
-		} finally {
-			this._stateTickInFlight = false
-		}
-	}
-
 	async getFrameSettings() {
 		if (this.eventmaster) {
 			try {
@@ -731,7 +668,7 @@ class BarcoInstance extends InstanceBase {
 				width: 12,
 				label: 'Information',
 				value:
-					'This module uses the official EventMaster JSON API. If the status is OK, it ONLY means that the IP configured answers on icmp ping. Tally and freeze feedback follow the state polling interval; presets, names and actions refresh on the slower polling interval, or immediately on supported changes when live updates are on.',
+					'This module uses the official EventMaster JSON API. If the status is OK, it ONLY means that the IP configured answers on icmp ping. With live updates on, the frame notifies changes (freeze, takes, names, presets) and the module re-reads just what changed. Otherwise everything refreshes on the polling interval.',
 			},
 			{
 				type: 'textinput',
@@ -749,21 +686,10 @@ class BarcoInstance extends InstanceBase {
 				default: 15,
 			},
 			{
-				type: 'number',
-				id: 'statePollInterval',
-				label:
-					'Fast state polling (seconds) for tally and freeze feedback. Off by default (0): only enable if extra polling of the frame is acceptable',
-				width: 6,
-				default: 0,
-				min: 0,
-				max: 60,
-				step: 0.5,
-			},
-			{
 				type: 'checkbox',
 				id: 'enable_notifications',
 				label:
-					'Enable live updates (frame pushes preset and destination changes; needs inbound access to this machine)',
+					'Enable live updates (frame notifies freeze, tally and name changes; needs inbound access to this machine)',
 				width: 6,
 				default: false,
 			},
@@ -816,7 +742,6 @@ class BarcoInstance extends InstanceBase {
 	async destroy() {
 		if (this.retry_interval) clearInterval(this.retry_interval)
 		if (this.polling_interval) clearInterval(this.polling_interval)
-		this.stopStatePoller()
 		// Teardown notifications if active
 		try {
 			await this.teardownNotifications()
@@ -1132,7 +1057,6 @@ class BarcoInstance extends InstanceBase {
 		}
 
 		variables.push(
-			{ variableId: 'frame_connection', name: 'Frame connection (Online/Offline, from state polling)' },
 			{ variableId: 'live_updates_status', name: 'Live updates status' },
 			{ variableId: 'live_updates_last', name: 'Last live update received' },
 		)
