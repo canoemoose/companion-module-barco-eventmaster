@@ -581,12 +581,12 @@ class BarcoInstance extends InstanceBase {
 
 	// One line for the config form: what auto-detect picks for the saved frame address, and why
 	describeDetectedListener() {
-		if (!this.config?.host) return 'Set the target IP first.'
+		if (!this.config?.host) return 'Set the target IP first'
 		const d = this.detectListenerIp()
-		if (d.reason === 'subnet') return `Uses ${d.address} (${d.iface}), on the frame's network.`
+		if (d.reason === 'subnet') return `${d.address} (${d.iface})`
 		if (d.reason === 'fallback')
-			return `No interface on the frame's network: it would guess ${d.address} (${d.iface}). Enter the address the frame should send to.`
-		return 'No network interface found.'
+			return `No interface on target's network. Best guess ${d.address} (${d.iface}): enter the right address.`
+		return 'No network interface found'
 	}
 
 	/**
@@ -876,8 +876,8 @@ class BarcoInstance extends InstanceBase {
 				// Worked out each time the form opens, so it shows what auto-detect would pick right now
 				type: 'static-text',
 				id: 'notification_host_detected',
-				label: 'Auto-detect',
-				width: 12,
+				label: 'Auto-detected address',
+				width: 6, // sits in the gap beside the host field
 				value: this.describeDetectedListener(),
 				isVisible: (config) => !!config.enable_notifications,
 			},

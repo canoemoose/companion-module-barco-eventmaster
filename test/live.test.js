@@ -632,14 +632,13 @@ server.listen(9999, '127.0.0.1', async () => {
 	both.notificationHost = undefined
 	const bd = both.detectListenerIp()
 	check('wired preferred over Wi-Fi on the same network', bd.address === '192.168.0.100' && bd.iface === 'Ethernet 2')
-	check(
-		'form line names the detected address',
-		/Uses 192\.168\.0\.100 \(Ethernet 2\), on the frame's network/.test(both.describeDetectedListener()),
-	)
+	check('form line names the detected address', both.describeDetectedListener() === '192.168.0.100 (Ethernet 2)')
 	const far = mk({ host: '10.99.0.1' })
 	check(
 		'form line says when it can only guess',
-		/No interface on the frame's network: it would guess/.test(far.describeDetectedListener()),
+		/^No interface on target's network\. Best guess .+: enter the right address\.$/.test(
+			far.describeDetectedListener(),
+		),
 	)
 	const field = both.getConfigFields().find((fl) => fl.id === 'notification_host_detected')
 	check('config form carries the detected line', field?.type === 'static-text' && /192\.168\.0\.100/.test(field.value))
