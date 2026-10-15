@@ -125,7 +125,8 @@ Checked on the real E2 with the module code:
   `listSources`, `listInputs`, `listOutputs`, `listSourceMainBackup`, `listStill`, `listCues`,
   `listUserKeys`, `listOperators`, `listPresets`, `listDestinations` types 0 to 3, `listContent` and
   `listAuxContent` per destination, `listDestinationsForPreset` per preset) were identical unarmed,
-  armed and unarmed again. Aux armed state is only in the 9876 XML push (`AuxDest` `IsActive`), which
+  armed and unarmed again. The arm does take effect: held for 30 s, EMT showed the aux armed (Matt,
+  2026-10-15), so the action works and the state exists. Aux armed state is only in the 9876 XML push (`AuxDest` `IsActive`), which
   this module won't use. `listMvrPreset` (v10, a different stack) is an unknown call on 9.2.
   Raw dump: `frame-test-kit/results/aux-arm-dump-2026-10-15-16-16-36/` (not committed).
 
