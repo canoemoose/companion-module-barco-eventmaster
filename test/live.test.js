@@ -310,8 +310,18 @@ server.listen(9999, '127.0.0.1', async () => {
 	frame.sources[1].InputCfgVideoStatus = 4
 	await notify('InputCfgChanged', [1])
 	check('signal loss -> source_2_signal = No signal', await until(() => b.vars.source_2_signal === 'No signal', 2000))
-	check('signal problem feedback on', b.feedbacks.source_signal_problem.callback({ options: { source: 1 } }) === true)
-	check('signal OK input not flagged', b.feedbacks.source_signal_problem.callback({ options: { source: 0 } }) === false)
+	const sig = (source, when) => b.feedbacks.source_signal_problem.callback({ options: { source, when } })
+	check(
+		'button saved before "Lights when" existed still means any problem',
+		sig(1, undefined) === true && sig(0, undefined) === false,
+	)
+	check('Lights when any problem: lost input on, good input off', sig(1, 'problem') && !sig(0, 'problem'))
+	check('Lights when Signal OK: good input on, lost input off', sig(0, 'ok') && !sig(1, 'ok'))
+	check('Lights when No signal matches status 4 only', sig(1, '4') && !sig(1, '2') && !sig(0, '4'))
+	frame.sources[1].InputCfgVideoStatus = 2
+	await notify('InputCfgChanged', [1])
+	check('format mismatch reported', await until(() => b.vars.source_2_signal === 'Format mismatch', 2000))
+	check('Lights when Format mismatch matches, No signal does not', sig(1, '2') && !sig(1, '4') && sig(1, 'problem'))
 	frame.sources[1].InputCfgVideoStatus = 1
 	await notify('InputCfgChanged', [1])
 	check('signal back -> OK', await until(() => b.vars.source_2_signal === 'OK', 2000))

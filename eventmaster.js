@@ -3449,11 +3449,13 @@ class BarcoInstance extends InstanceBase {
 			callback: (feedback) => this.isScreenArmed(parseInt(feedback.options.destId)),
 		}
 
+		// Id kept from the first version (Source Signal Problem) so existing buttons keep working;
+		// a button saved before "Lights when" existed has no value for it and means "any problem".
 		feedbacks['source_signal_problem'] = {
 			type: 'boolean',
-			name: 'Source Signal Problem',
+			name: 'Source Signal',
 			description:
-				'True when the selected input has no usable signal (no signal, format mismatch, out of range or invalid)',
+				'True when the selected input signal matches the chosen condition. The source_N_signal variable shows the state as text.',
 			defaultStyle: {
 				bgcolor: 0xc80000,
 				color: 0xffffff,
@@ -3467,10 +3469,28 @@ class BarcoInstance extends InstanceBase {
 					choices: freezeSourceChoices,
 					default: freezeSourceChoices.length > 0 ? freezeSourceChoices[0].id : 0,
 				},
+				{
+					type: 'dropdown',
+					label: 'Lights when',
+					id: 'when',
+					choices: [
+						{ id: 'problem', label: 'Any problem (no signal, format mismatch, out of range, invalid)' },
+						{ id: 'ok', label: 'Signal OK' },
+						{ id: '4', label: 'No signal' },
+						{ id: '2', label: 'Format mismatch' },
+						{ id: '3', label: 'Out of range' },
+						{ id: '0', label: 'Invalid (sync but cannot lock)' },
+					],
+					default: 'problem',
+				},
 			],
 			callback: (feedback) => {
 				const status = this.sourceSignal(parseInt(feedback.options.source))
-				return status !== undefined && status !== 1
+				if (status === undefined) return false
+				const when = feedback.options.when ?? 'problem'
+				if (when === 'problem') return status !== 1
+				if (when === 'ok') return status === 1
+				return status === parseInt(when)
 			},
 		}
 

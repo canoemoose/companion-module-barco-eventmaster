@@ -81,7 +81,7 @@ Without live updates, changes made outside Companion show at the next polling in
 #### **Arm, Signal and Test Pattern Feedback**
 
 - **Screen Destination Armed**: Button lights when the screen destination is armed (selected for transitions). The _Arm/Unarm Destinations_ Arm preset reads _ARMED_ while armed. Aux arm isn't reported by the frame, so there is no aux armed feedback
-- **Source Signal Problem**: Button lights (red) when an input has no usable signal: no signal, format mismatch, out of range or invalid
+- **Source Signal**: Button lights when an input's signal matches the chosen condition: any problem (the default: no signal, format mismatch, out of range or invalid), signal OK, or one specific condition. Stack two on a button for, say, green when OK and red when lost. `source_N_signal` shows the state as text
 - **Test Pattern Active**: Button lights when a test pattern is on a screen or aux destination: any pattern, or a chosen one. The _Test patterns_ presets show _ON_ on the active pattern, and on _Off_ while no pattern is on
 - Variables: `screen_N_armed` (Yes/No), `source_N_signal` (OK, No signal, Format mismatch, Out of range, Invalid), `screen_N_test_pattern` / `aux_N_test_pattern` (pattern name, or Off)
 
