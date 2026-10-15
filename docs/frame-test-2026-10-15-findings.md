@@ -105,6 +105,22 @@ source `ScreenDest1_PGM-3` has `DestIndex 0` and is excluded by the filter, as i
 - Confirmed by Matt in Companion 5.0.7 with 4.5.0-freeze.10 (fast state polling removed): a freeze
   made in EMT lights the Companion button, and preset recall and takes in EMT update tally.
 
+## Arm, signal and test pattern (4.5.0-freeze.12)
+
+Checked on the real E2 with the module code:
+
+| Feature      | Notification                       | State read                                                                               |
+| ------------ | ---------------------------------- | ---------------------------------------------------------------------------------------- |
+| Screen arm   | `ScreenDestChanged` [screen id]    | `listContent` `IsActive`                                                                 |
+| Aux arm      | `AUXDestChanged` [aux id]          | **not reported by JSON-RPC** (only in the 9876 XML), so not supported                    |
+| Test pattern | `OutputCfgChanged` [**output id**] | `listContent` / `listAuxContent` `OutputCfg[].OutputAOI[].TestPattern[].TestPatternMode` |
+| Input signal | `InputCfgChanged` [input index]    | `listSources` `InputCfgVideoStatus` (1 OK, 4 no sync)                                    |
+
+- Arm and test pattern made by another client showed in about 550 ms; the module's own actions in 40 to 60 ms.
+- Cable pulled on input 1: one `InputCfgChanged`, variable to No signal within about 20 ms of it.
+  Replugged: two `InputCfgChanged` about 1.5 s apart while the input locked; back to OK on the second.
+- Output ids are frame-wide (screen 0 owned output 0, the aux output 1), hence the output-to-destination map.
+
 ## Later
 
 - XML push client on 9876, if the inbound notification path proves fragile on show networks: it
