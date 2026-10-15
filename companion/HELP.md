@@ -14,7 +14,7 @@ The module will update presets and actions every 15 seconds by default (configur
 - **Polling Interval**: How often to refresh data (in seconds, 0 to disable)
 - **Authentication Mode**: None, Operator ID, or Super User Password
 - **Auth Value**: Authentication credentials (when required)
-- **State Polling Interval**: How often tally and freeze state is read (seconds, default 1, 0 to disable)
+- **Fast State Polling**: Optional fast read of tally and freeze state (seconds; off by default)
 - **Enable Live Updates**: Let the frame push structural changes (presets, destinations) to Companion
 - **Notification Server Port**: Local port for receiving EventMaster notifications (default: 3000)
 - **Notification Listener IP**: IP address the EventMaster should send notifications to (auto-detected on the frame's subnet if empty)
@@ -23,7 +23,7 @@ The module will update presets and actions every 15 seconds by default (configur
 
 ### **State Polling (tally and freeze)**
 
-Tally and freeze feedback are driven by a fast, lightweight poll (default every second). It needs nothing open inbound on the Companion machine and picks up changes made anywhere: Companion, EM Toolset or the console.
+Fast state polling is **off by default**. When off, tally and freeze update immediately for changes made from Companion and otherwise on the main polling interval. When enabled (e.g. 1 second) it picks up changes made anywhere (Companion, EM Toolset or the console) and needs nothing open inbound on the Companion machine, at the cost of extra requests to the frame.
 
 The `frame_connection` variable shows **Online** or **Offline**. When the frame comes back after an outage or reboot, the module refreshes everything and re-subscribes live updates automatically.
 
@@ -83,7 +83,7 @@ With live updates on, preset lists, names and dropdowns refresh within about hal
 - Variables: `source_N_frozen` (Yes/No), `screen_N_frozen` (Yes/Partial/No), and `source_N_label` / `screen_N_label` (name with the frame-appended `-N` source/input number removed, e.g. `Cam 1-1` → `Cam 1`)
 - Freeze presets and dropdowns list live inputs only (stills, and destinations or user keys re-entered as sources, are left out)
 - Presets: _Freeze Sources_ and _Freeze Screen Destinations_ categories contain ready-made toggle buttons: they read _Freeze_ above the source name, and turn blue reading _FROZEN_ while frozen
-- State follows the state polling interval (default 1 second)
+- Freeze made from Companion shows immediately; external changes follow the polling interval (or fast state polling if enabled)
 
 #### **AUX Destinations**
 
@@ -241,7 +241,7 @@ The module provides two types of source tally feedback for buttons:
 
 #### **Real-time Updates**
 
-- Both feedback types update automatically from **State Polling** (default every second)
+- Both feedback types update on the main polling interval, or faster with **Fast State Polling** enabled
 - Changes made anywhere (Companion, EM Toolset, console) are picked up within one polling interval
 - Works with background layers, regular layers, and AUX content
 

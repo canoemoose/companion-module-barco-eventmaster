@@ -414,7 +414,7 @@ class BarcoInstance extends InstanceBase {
 	 */
 	startStatePoller() {
 		this.stopStatePoller()
-		const secs = this.config?.statePollInterval === undefined ? 1 : Number(this.config.statePollInterval)
+		const secs = this.config?.statePollInterval === undefined ? 0 : Number(this.config.statePollInterval)
 		if (!secs || secs <= 0) {
 			this.log('debug', 'State polling disabled')
 			return
@@ -678,9 +678,10 @@ class BarcoInstance extends InstanceBase {
 			{
 				type: 'number',
 				id: 'statePollInterval',
-				label: 'State polling interval (seconds) for tally and freeze feedback (0 to disable)',
+				label:
+					'Fast state polling (seconds) for tally and freeze feedback. Off by default (0): only enable if extra polling of the frame is acceptable',
 				width: 6,
-				default: 1,
+				default: 0,
 				min: 0,
 				max: 60,
 				step: 0.5,
