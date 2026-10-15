@@ -3,6 +3,12 @@
 Fork of `bitfocus/companion-module-barco-eventmaster` (base: v4.4.5, commit `9f84de7`).
 Branch: `feature/freeze-toggle-feedback`. Owner: Matt.
 
+## Timing
+
+**The test session is this afternoon** (a blank frame in the warehouse), not days away. Aim for a
+working, mock-rehearsed kit within about an hour; favour a reliable minimal kit over polish. Matt
+won't have the frame for long, so it must work first time.
+
 ## The next job
 
 Build a **frame test kit** that answers the open questions below in the **shortest possible
@@ -61,18 +67,19 @@ is Matt's call; ask before changing `.gitignore`.
 
 ## Findings from the first frame (confirmed by Matt)
 
-**The next test session is on a different frame**, but both frames run the latest v9 firmware and
-Companion runs on the **same PC**, so these findings are expected to carry across. The kit records
+**The next test session is on a different frame** (a blank warehouse frame), but both frames run the
+latest v9 firmware and Companion runs on the **same laptop**, so these findings are expected to carry
+across. The kit records
 the frame's firmware to confirm that, rather than assuming it. The test frame will be **blank**:
 see Frame prep below.
 
-| Item              | Value                                                                                    |
-| ----------------- | ---------------------------------------------------------------------------------------- |
-| Frame             | Barco Event Master E2, latest v9 firmware (9.2.x); test frame is the same version        |
-| Frame IP          | 192.168.0.180                                                                            |
-| Companion PC      | Windows, 192.168.0.15, network profile set to Private. **Same PC for the test session**  |
-| Notification port | 3000 (inbound firewall rule already in place, RemoteAddress **Any**)                     |
-| MVR card          | No Gen 2 HDMI card on that frame. **TSL is ruled out regardless**: it can't carry freeze |
+| Item              | Value                                                                                                                                     |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Frame             | Barco Event Master E2, latest v9 firmware (9.2.x); test frame is the same version                                                         |
+| Frame IP          | 192.168.0.180                                                                                                                             |
+| Companion PC      | Windows laptop, was 192.168.0.15 on the first frame's network. **Same laptop for the test, on the warehouse network: its IP will differ** |
+| Notification port | 3000 (inbound firewall rule already in place, RemoteAddress **Any**)                                                                      |
+| MVR card          | No Gen 2 HDMI card on that frame. **TSL is ruled out regardless**: it can't carry freeze                                                  |
 
 Diagnosis history for live updates (so it isn't repeated):
 
@@ -148,7 +155,9 @@ Deliver a single folder Matt can copy to the Companion PC, e.g. `frame-test-kit/
      prerequisites are missing are skipped and marked as such in the results.
    - **Preflight** (no frame changes): frame reachable on 9999 (a read-only JSON call) and 9876 (TCP
      connect only); local port free; network profile Private and the inbound rule for the port present
-     (already set up on this PC: verify only, and say what to fix if not). Warn that the Companion EM
+     (the firewall rule is already on this laptop and applies on any network. **But Windows network
+     profile is per network**: the warehouse network will likely be **Public**. Check the profile of
+     the interface on the frame's subnet and offer to set it to Private (admin), recording the change). Warn that the Companion EM
      connection must be disabled for the duration.
    - **Naming/filter checks** (read-only): report source names that don't end in `-<digits>`, and
      sources with `DestIndex >= 0` or `UserKeyIndex >= 0`, to confirm the label and filter rules hold
@@ -172,7 +181,7 @@ Deliver a single folder Matt can copy to the Companion PC, e.g. `frame-test-kit/
      Also ask the operator to open EMT's Ctrl+O XML log and save it, to capture EMT's own outbound
      messages (handshake/GUID format).
    - **Cleanup (always, including on Ctrl+C / error):** unsubscribe everything subscribed, stop
-     listener, stop pktmon, close sockets. Leave the PC's firewall rule and network profile as they are (they're needed for live updates).
+     listener, stop pktmon, close sockets. Leave the firewall rule in place (needed for live updates); offer to revert the network profile if the preflight changed it.
    - **Output:** one results folder named with frame model, firmware and timestamp: `results.md`
      (frame identification, action × notification matrix, XML received yes/no, snapshot diffs,
      naming/filter checks) plus raw logs and the pcap. Matt sends this back.
