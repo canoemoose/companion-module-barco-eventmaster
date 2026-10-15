@@ -814,7 +814,7 @@ class BarcoInstance extends InstanceBase {
 			{
 				type: 'checkbox',
 				id: 'enable_notifications',
-				label: 'Enable live updates',
+				label: 'Enable live updates (EventMaster subscriptions)',
 				width: 6,
 				default: false,
 			},
