@@ -8,6 +8,10 @@ Upstream base: v4.4.5, commit `9f84de7`. Fork branch: `feature/freeze-toggle-fee
 
 - **PRs are minimal and standalone.** Each one makes sense and works on its own against upstream.
 - **No tests in the PRs.** Upstream has none; the fork's `test/` stays in the fork.
+- **The proof is what the frame actually does, not what it replies.** Each proof shows observed
+  behaviour: the output or EMT (Matt watching), an independent read-back over a separate connection,
+  or a notification actually arriving at a listener. The JSON-RPC reply (`success: 0` etc.) is
+  supporting evidence only: the frame accepted an aux arm with `success: 0` while no read showed it.
 - **Every claim that upstream is broken must be proven on real hardware**, by running upstream's own
   code (`9f84de7`, unchanged) against a real frame. Mock runs only check a script works; they are not
   evidence. A claim that can't be reproduced on hardware doesn't go in a PR.
@@ -40,6 +44,16 @@ Retracted: "screen freeze feedback broken upstream". Upstream has no screen free
 | 3        | Live updates can't restart: teardown never stops the notification server, so setup again (config change) hits address in use                        | `eventmaster.js` ~312, listener `start()` | Upstream module: enable live updates, change config (re-init), record outcome; does a notification still arrive afterwards?                          |
 | 4        | If the notification port is taken, the module process crashes (listener error unhandled)                                                            | listener / `startNotificationServer`      | Hold the port, enable live updates against a real frame, record whether the module process dies                                                      |
 | 5 (open) | Upstream subscribes with a numeric port; does the frame accept it?                                                                                  | listener line 40                          | Subscribe with number vs string, check `success` and whether notifications arrive. Only claim if it fails                                            |
+
+The behaviour each proof rests on (the reply is only supporting):
+
+- 1: the aux output shows no test pattern (Matt watching), and an independent read-back of the aux
+  shows `TestPatternMode` 0. Control: the same pattern sent with the right option does appear.
+- 2: after the "clean" unsubscribe, a subscription left by a previous run still receives
+  notifications (a listener on the old port gets them when Matt changes something).
+- 3: after re-init, notifications no longer arrive at the module (and the error it hits).
+- 4: the module process exits.
+- 5: notifications arrive (or don't) with a numeric port versus a string port.
 
 ## Hardware session plan (E2 + PDS-4K on one network)
 
