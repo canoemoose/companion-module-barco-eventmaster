@@ -53,9 +53,18 @@ const frame = {
 	subscribeSuccess: 0,
 	calls: [],
 	subs: [],
-	sources: [{ id: 0, Name: 'Cam 1-1', InputCfgIndex: 0, DestIndex: -1, UserKeyIndex: -1, Freeze: 0 }],
-	screens: [{ id: 0, Name: 'LED MAIN', DestOutMapColl: [{ id: 0, DestOutMap: [{ id: 0, Freeze: 0 }] }] }],
-	content: { 0: { pgmSrc: -1 } },
+	sources: [
+		{ id: 0, Name: 'Cam 1-1', InputCfgIndex: 0, DestIndex: -1, UserKeyIndex: -1, Freeze: 0 },
+		{ id: 1, Name: 'Cam 2-2', InputCfgIndex: 1, DestIndex: -1, UserKeyIndex: -1, Freeze: 0 },
+	],
+	// Shapes as returned by 9.2.6318: DestOutMapCol is an object, screen and aux freeze is FrzMode
+	screens: [
+		{ id: 0, Name: 'LED MAIN', DestOutMapCol: { DestOutMap: [{ id: 0, FrzMode: 0 }] } },
+		{ id: 1, Name: 'IMAG', DestOutMapCol: { DestOutMap: [{ id: 0, FrzMode: 0 }] } },
+	],
+	auxes: [{ id: 0, Name: 'Aux 1', AuxStreamMode: 1, FrzMode: 0 }],
+	content: { 0: { pgmSrc: -1 }, 1: { pgmSrc: -1 } },
+	aux: { 0: { pgmSrc: -1 } },
 }
 const server = http.createServer((req, res) => {
 	let body = ''
@@ -70,14 +79,15 @@ const server = http.createServer((req, res) => {
 		let response = null,
 			success = 0
 		if (method === 'listSources') response = frame.sources
-		else if (method === 'listDestinations') response = { ScreenDestination: frame.screens, AuxDestination: [] }
+		else if (method === 'listDestinations') response = { ScreenDestination: frame.screens, AuxDestination: frame.auxes }
 		else if (method === 'listContent')
 			response = {
 				id: params.id,
 				BGLyr: [],
-				Layers: [{ id: 0, LastSrcIdx: frame.content[0].pgmSrc, PgmMode: 1, PvwMode: 0, Freeze: 0 }],
+				Layers: [{ id: 0, LastSrcIdx: frame.content[params.id].pgmSrc, PgmMode: 1, PvwMode: 0, Freeze: 0 }],
 			}
-		else if (method === 'listAuxContent') response = { id: params.id }
+		else if (method === 'listAuxContent')
+			response = { id: params.id, PgmLastSrcIndex: frame.aux[params.id].pgmSrc, PvwLastSrcIndex: -1 }
 		else if (method === 'subscribe') {
 			success = frame.subscribeSuccess
 			frame.subs.push(params)
@@ -89,10 +99,10 @@ const server = http.createServer((req, res) => {
 	})
 })
 // Frame pushing a notification to the subscriber
-const notify = (type) => {
+const notify = (type, update = [0], add = []) => {
 	const s = frame.subs[frame.subs.length - 1]
 	const data = JSON.stringify({
-		result: { method: 'notification', notificationType: type, change: { add: [], remove: [], update: [0] } },
+		result: { method: 'notification', notificationType: type, change: { add, remove: [], update } },
 	})
 	return new Promise((r) => {
 		const req = http.request(
@@ -227,14 +237,89 @@ server.listen(9999, '127.0.0.1', async () => {
 		'subscribe sends string port + structural events',
 		sp.port === '3101' && sp.notification.includes('PresetChanged') && sp.notification.includes('ScreenDestChanged'),
 	)
+	check('subscribe includes InputCfgChanged (source freeze)', sp.notification.includes('InputCfgChanged'))
 	await notify('PresetChanged')
 	check('PresetChanged triggers structure refresh', await until(() => structureRefreshes === 1, 2000))
 	check('live_updates_last set', /PresetChanged x1/.test(b.vars.live_updates_last || ''))
-	await notify('ScreenDestChanged')
-	await notify('ScreenDestChanged')
+	await wait(300) // let the fire-and-forget tally pass after the refresh finish
+	const since = (t0, method, id) =>
+		frame.calls.slice(t0).filter((c) => c.method === method && (id === undefined || c.params?.id === id)).length
+
+	// Source frozen elsewhere: InputCfgChanged -> listSources only
+	let t = frame.calls.length
+	check('source 2 starts unfrozen', b.vars.source_2_frozen === 'No')
+	frame.sources[1].Freeze = 1
+	await notify('InputCfgChanged', [1])
+	check('InputCfgChanged picks up external source freeze', await until(() => b.vars.source_2_frozen === 'Yes', 2000))
+	await wait(100)
 	check(
-		'burst debounced into one refresh',
-		(await until(() => structureRefreshes === 2, 2000)) && (await wait(800), structureRefreshes === 2),
+		`InputCfgChanged: targeted read, no structure refresh (refreshes ${structureRefreshes}, listSources ${since(t, 'listSources')}, listPresets ${since(t, 'listPresets')})`,
+		structureRefreshes === 1 && since(t, 'listSources') === 1 && since(t, 'listPresets') === 0,
+	)
+	frame.sources[1].Freeze = 0
+	await notify('InputCfgChanged', [1])
+	check('InputCfgChanged picks up unfreeze', await until(() => b.vars.source_2_frozen === 'No', 2000))
+
+	// Screen frozen elsewhere: ScreenDestChanged [1] -> listDestinations + listContent for screen 1 only
+	t = frame.calls.length
+	frame.screens[1].DestOutMapCol.DestOutMap[0].FrzMode = 1
+	await notify('ScreenDestChanged', [1])
+	check(
+		'ScreenDestChanged picks up external screen freeze (FrzMode)',
+		await until(() => b.vars.screen_1_frozen === 'Yes', 2000),
+	)
+	await wait(100)
+	check(
+		'ScreenDestChanged [1]: re-reads only screen 1 content',
+		since(t, 'listDestinations') === 1 && since(t, 'listContent', 1) === 1 && since(t, 'listContent', 0) === 0,
+	)
+	check('screen freeze: no structure refresh', structureRefreshes === 1)
+
+	// A take streams one ScreenDestChanged per transition frame: one read once it settles
+	t = frame.calls.length
+	frame.content[0].pgmSrc = 1
+	for (let i = 0; i < 30; i++) {
+		await notify('ScreenDestChanged', [0])
+		await wait(20)
+	}
+	check(
+		'take: tally updated from targeted read',
+		await until(() => (b.vars.source_2_pgm_destinations || '').includes('LED MAIN'), 2000),
+	)
+	await wait(700)
+	check(`take burst of 30 -> one content read (${since(t, 'listContent', 0)})`, since(t, 'listContent', 0) === 1)
+	check('take: tally for untouched screen kept from cache', since(t, 'listContent', 1) === 0)
+
+	// Aux source change: AUXDestChanged -> listAuxContent for that aux only
+	t = frame.calls.length
+	frame.aux[0].pgmSrc = 0
+	await notify('AUXDestChanged', [0])
+	check(
+		'AUXDestChanged updates aux tally',
+		await until(() => (b.vars.source_1_pgm_destinations || '').includes('AUX Aux 1'), 2000),
+	)
+	check('AUXDestChanged: no screen content reads', since(t, 'listContent') === 0)
+
+	// Rename arrives as an update to an existing id: treated as structural
+	frame.auxes[0].Name = 'Aux Renamed'
+	await notify('AUXDestChanged', [0])
+	check('rename detected -> structure refresh', await until(() => structureRefreshes === 2, 2000))
+	frame.auxes[0].Name = 'Aux 1'
+
+	// Additions are structural even on a live type
+	await notify('ScreenDestChanged', [], [2])
+	check('add on ScreenDestChanged -> structure refresh', await until(() => structureRefreshes === 3, 2000))
+	await wait(300)
+
+	// Plans arriving while one runs are merged and run next, not dropped
+	t = frame.calls.length
+	const p1 = b.applyLiveUpdate({ full: false, sources: true, destinations: false, screens: [], auxes: [] })
+	const p2 = b.applyLiveUpdate({ full: false, sources: false, destinations: true, screens: [1], auxes: [] })
+	const p3 = b.applyLiveUpdate({ full: false, sources: false, destinations: true, screens: [0], auxes: [] })
+	await Promise.all([p1, p2, p3])
+	check(
+		'overlapping live updates merged, none dropped',
+		since(t, 'listContent', 0) === 1 && since(t, 'listContent', 1) === 1 && since(t, 'listDestinations') === 1,
 	)
 
 	// teardown unsubscribes the same events/port and frees the port

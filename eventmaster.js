@@ -6,17 +6,21 @@ const ping = require('ping')
 const getPresets = require('./presets')
 const _ = require('lodash')
 
-// Event Master (tested on 9.2) only notifies structural changes: destination renames and preset
-// save/delete. Content changes (recalls, layer sources, freeze) are NOT notified, so live state
-// comes from the fast state poller and subscriptions only speed up structural refreshes.
+// Event Master notifications (tested on 9.2.6318) cover live state as well as structure:
+// InputCfgChanged on source freeze, ScreenDestChanged on screen freeze and takes (one per
+// transition frame), AUXDestChanged on aux changes. They carry ids only, so each debounced batch
+// triggers a targeted read of just what changed. See docs/frame-test-2026-10-15-findings.md.
 const NOTIFY_EVENTS = [
 	'ScreenDestChanged',
 	'AUXDestChanged',
+	'InputCfgChanged',
 	'SourceChanged',
 	'PresetChanged',
 	'CueChanged',
 	'StillChanged',
 ]
+// Types that mean names or lists changed: refresh everything, not just live state
+const STRUCTURAL_EVENTS = ['SourceChanged', 'PresetChanged', 'CueChanged', 'StillChanged']
 const RESUBSCRIBE_MS = 10 * 60 * 1000
 
 class BarcoInstance extends InstanceBase {
@@ -288,7 +292,7 @@ class BarcoInstance extends InstanceBase {
 				this.setStatusVariables({ live_updates_status: `Subscribe failed: ${detail}` })
 			}
 		}
-		listener.onPull = async ({ counts }) => {
+		listener.onPull = async ({ counts, snapshot }) => {
 			const types = Object.entries(counts || {})
 				.filter(([, n]) => n > 0)
 				.map(([t, n]) => `${t} x${n}`)
@@ -298,8 +302,7 @@ class BarcoInstance extends InstanceBase {
 			this.setStatusVariables({
 				live_updates_last: `${new Date().toLocaleTimeString()} ${types || 'notification'}`,
 			})
-			// Structural change: refresh lists, names and definitions now rather than at the next slow poll
-			await this.refreshStructure('live update')
+			await this.applyLiveUpdate(this.planLiveUpdate(counts, snapshot))
 		}
 		this._notificationListener = listener
 		listener.start()
@@ -314,6 +317,76 @@ class BarcoInstance extends InstanceBase {
 		if (!this.notificationActive || !this._notificationListener) return
 		this.log('debug', `Live updates: re-subscribing (${reason})`)
 		this._notificationListener.resubscribe()
+	}
+
+	/**
+	 * Turn a debounced batch of notifications into the reads it needs. Additions, removals or a
+	 * structural type mean a full refresh; otherwise only what changed is re-read.
+	 */
+	planLiveUpdate(counts, snapshot) {
+		const ids = (type) => {
+			const c = snapshot?.[type]
+			return [...new Set([...(c?.update || []), ...(c?.add || []), ...(c?.remove || [])])]
+		}
+		const hit = (type) => (counts?.[type] || 0) > 0
+		const addOrRemove = Object.values(snapshot || {}).some((c) => c?.add?.length || c?.remove?.length)
+		return {
+			full: addOrRemove || STRUCTURAL_EVENTS.some(hit),
+			sources: hit('InputCfgChanged'),
+			destinations: hit('ScreenDestChanged') || hit('AUXDestChanged'),
+			screens: ids('ScreenDestChanged'),
+			auxes: ids('AUXDestChanged'),
+		}
+	}
+
+	/**
+	 * Apply a live update plan. Serialised: plans arriving while one runs are merged and run next,
+	 * so nothing is dropped and a burst costs at most one extra pass.
+	 */
+	async applyLiveUpdate(plan) {
+		if (this._livePlanRunning) {
+			const q = this._livePlanQueued
+			this._livePlanQueued = q
+				? {
+						full: q.full || plan.full,
+						sources: q.sources || plan.sources,
+						destinations: q.destinations || plan.destinations,
+						screens: [...new Set([...q.screens, ...plan.screens])],
+						auxes: [...new Set([...q.auxes, ...plan.auxes])],
+					}
+				: plan
+			return
+		}
+		this._livePlanRunning = true
+		try {
+			if (plan.full) {
+				await this.refreshStructure('live update')
+				return
+			}
+			const before = this.structureNames()
+			if (plan.sources) await this.getSourcesFromEventmaster()
+			if (plan.destinations) await this.getDestinationsFromEventmaster()
+			// A rename comes as an update to an existing id; names feed variable definitions,
+			// dropdowns and presets, so treat it as structural
+			if (this.structureNames() !== before) {
+				await this.refreshStructure('rename')
+				return
+			}
+			await this.autoPopulateSourceMonitoring({ screens: plan.screens, auxes: plan.auxes })
+		} catch (e) {
+			this.log('error', `Live update failed: ${e?.message || e}`)
+		} finally {
+			this._livePlanRunning = false
+			const next = this._livePlanQueued
+			this._livePlanQueued = null
+			if (next) await this.applyLiveUpdate(next)
+		}
+	}
+
+	structureNames() {
+		const names = (o) => Object.values(o || {}).map((x) => `${x.id}:${x.Name}`)
+		const d = this.eventmasterData || {}
+		return JSON.stringify([names(d.sources), names(d.ScreenDestinations), names(d.AuxDestinations)])
 	}
 
 	async refreshStructure(reason) {
@@ -1087,8 +1160,26 @@ class BarcoInstance extends InstanceBase {
 	/**
 	 * Freeze state helpers.
 	 * Source freeze comes from listSources (Freeze per source); screen freeze comes from
-	 * listDestinations (Freeze per output in DestOutMapColl). Both are cached in eventmasterData.
+	 * listDestinations, per output. Both are cached in eventmasterData.
 	 */
+
+	/**
+	 * A screen's outputs. 9.2.6318 returns DestOutMapCol (an object) with FrzMode on each output;
+	 * Barco's 8.2 doc describes DestOutMapColl (an array) with Freeze. Accept either.
+	 */
+	screenOutputs(screen) {
+		const colls = [].concat(screen?.DestOutMapCol ?? [], screen?.DestOutMapColl ?? [])
+		return colls.flatMap((coll) => [].concat(coll?.DestOutMap ?? [])).filter(Boolean)
+	}
+
+	outputFreezeValue(out) {
+		return out.FrzMode !== undefined ? out.FrzMode : out.Freeze
+	}
+
+	setOutputFreeze(out, mode) {
+		if (out.FrzMode !== undefined || out.Freeze === undefined) out.FrzMode = mode
+		if (out.Freeze !== undefined) out.Freeze = mode
+	}
 	findSourceById(id) {
 		return Object.values(this.eventmasterData?.sources || {}).find((s) => s.id === id)
 	}
@@ -1122,13 +1213,10 @@ class BarcoInstance extends InstanceBase {
 
 	getScreenOutputFreezeStates(id) {
 		const screen = this.findScreenById(id)
-		const states = []
-		for (const coll of screen?.DestOutMapColl || []) {
-			for (const out of coll?.DestOutMap || []) {
-				if (out && out.Freeze !== undefined) states.push(out.Freeze > 0)
-			}
-		}
-		return states
+		return this.screenOutputs(screen)
+			.map((out) => this.outputFreezeValue(out))
+			.filter((v) => v !== undefined)
+			.map((v) => v > 0)
 	}
 
 	isScreenFrozen(id, match = 'any') {
@@ -1215,10 +1303,7 @@ class BarcoInstance extends InstanceBase {
 				const source = this.findSourceById(id)
 				if (source) source.Freeze = mode
 			} else if (type === 2) {
-				const screen = this.findScreenById(id)
-				for (const coll of screen?.DestOutMapColl || []) {
-					for (const out of coll?.DestOutMap || []) if (out) out.Freeze = mode
-				}
+				for (const out of this.screenOutputs(this.findScreenById(id))) this.setOutputFreeze(out, mode)
 			}
 			this.updateFreezeVariablesAndFeedbacks()
 			this.refreshFreezeState()
@@ -1226,10 +1311,47 @@ class BarcoInstance extends InstanceBase {
 	}
 
 	/**
+	 * Read screen (listContent) and aux (listAuxContent) content into the per-destination cache.
+	 * @param {{screens?: number[], auxes?: number[]}} [only] ids to read; omit to read all
+	 */
+	async fetchDestinationContent(only) {
+		this._screenContent = this._screenContent || {}
+		this._auxContent = this._auxContent || {}
+		const wanted = (ids, id) => !only || (ids || []).includes(id)
+		for (const dest of Object.values(this.eventmasterData?.ScreenDestinations || {})) {
+			if (!wanted(only?.screens, dest.id)) continue
+			try {
+				const res = await new Promise((resolve, reject) => {
+					this.eventmaster.listContent(parseInt(dest.id), (err, result) => (err ? reject(err) : resolve(result)))
+				})
+				if (res?.response) this._screenContent[dest.id] = res.response
+				else this.log('warn', `No response data for screen destination ${dest.id}`)
+			} catch (err) {
+				this.log('error', `Could not get content for screen destination ${dest.id}: ${err}`)
+			}
+		}
+		for (const dest of Object.values(this.eventmasterData?.AuxDestinations || {})) {
+			if (!wanted(only?.auxes, dest.id)) continue
+			try {
+				const res = await new Promise((resolve, reject) => {
+					this.eventmaster.listAuxContent(parseInt(dest.id), (err, result) => (err ? reject(err) : resolve(result)))
+				})
+				if (res?.response) this._auxContent[dest.id] = res.response
+				else this.log('warn', `No response data for AUX destination ${dest.id}`)
+			} catch (err) {
+				this.log('error', `Could not get content for AUX destination ${dest.id}: ${err}`)
+			}
+		}
+	}
+
+	/**
 	 * Auto-populate source monitoring variables by querying all destinations
 	 * Shows which destinations each source is active on
 	 */
-	async autoPopulateSourceMonitoring() {
+	/**
+	 * @param {{screens?: number[], auxes?: number[]}} [only] destinations to re-read; omit to re-read all
+	 */
+	async autoPopulateSourceMonitoring(only) {
 		// Check if EventMaster is connected
 		if (!this.eventmaster) {
 			this.log('warn', 'EventMaster not connected, skipping source monitoring')
@@ -1255,135 +1377,40 @@ class BarcoInstance extends InstanceBase {
 			return
 		}
 
-		// Query all screen destinations to see what sources are active
-		if (this.eventmasterData && this.eventmasterData.ScreenDestinations) {
-			// this.log('debug', `Querying ${Object.keys(this.eventmasterData.ScreenDestinations).length} screen destinations...`)
+		// Read content for the requested destinations (all by default) into the cache, then work out
+		// tally from the cache for every destination, so a targeted read keeps the others' tally
+		await this.fetchDestinationContent(only)
 
-			for (const dest of Object.values(this.eventmasterData.ScreenDestinations)) {
-				try {
-					const res = await new Promise((resolve, reject) => {
-						this.eventmaster.listContent(parseInt(dest.id), (err, result) => {
-							if (err) reject(err)
-							else resolve(result)
-						})
-					})
+		for (const dest of Object.values(this.eventmasterData.ScreenDestinations || {})) {
+			const content = this._screenContent?.[dest.id]
+			if (!content) continue
 
-					if (res && res.response) {
-						const content = res.response
+			// Background layers: id 0 = PGM, id 1 = PVW
+			for (const bg of content.BGLyr || []) {
+				if (bg.LastBGSourceIndex === undefined || bg.LastBGSourceIndex === -1) continue
+				const target = bg.id === 0 ? sourcePgmDestinations : bg.id === 1 ? sourcePvwDestinations : null
+				if (target?.[bg.LastBGSourceIndex]) target[bg.LastBGSourceIndex].push(`Screen ${dest.Name}`)
+			}
 
-						// Check background layers for PGM (id 0 = PGM background)
-						if (content.BGLyr && content.BGLyr.length > 0) {
-							// this.log('debug', `Screen ${dest.id} has ${content.BGLyr.length} background layers`)
-
-							const pgmBgLayer = content.BGLyr.find((layer) => layer.id === 0)
-							if (pgmBgLayer && pgmBgLayer.LastBGSourceIndex !== undefined && pgmBgLayer.LastBGSourceIndex !== -1) {
-								const sourceId = pgmBgLayer.LastBGSourceIndex
-								if (sourcePgmDestinations[sourceId]) {
-									sourcePgmDestinations[sourceId].push(`Screen ${dest.Name}`)
-								}
-							}
-
-							// Check for PVW background (id 1 = PVW background)
-							const pvwBgLayer = content.BGLyr.find((layer) => layer.id === 1)
-							if (pvwBgLayer && pvwBgLayer.LastBGSourceIndex !== undefined && pvwBgLayer.LastBGSourceIndex !== -1) {
-								const sourceId = pvwBgLayer.LastBGSourceIndex
-								if (sourcePvwDestinations[sourceId]) {
-									sourcePvwDestinations[sourceId].push(`Screen ${dest.Name}`)
-								}
-							}
-						}
-
-						// Check active layers
-						if (content.Layers && content.Layers.length > 0) {
-							content.Layers.forEach((layer) => {
-								// Check if layer is on PGM
-								if (
-									layer.PgmMode !== undefined &&
-									layer.PgmMode > 0 &&
-									layer.LastSrcIdx !== undefined &&
-									layer.LastSrcIdx !== -1 &&
-									layer.Freeze !== undefined &&
-									layer.Freeze === 0
-								) {
-									const sourceId = layer.LastSrcIdx
-									if (sourcePgmDestinations[sourceId]) {
-										sourcePgmDestinations[sourceId].push(`Screen ${dest.Name} L${layer.id}`)
-									}
-								}
-
-								// Check if layer is on PVW
-								if (
-									layer.PvwMode !== undefined &&
-									layer.PvwMode > 0 &&
-									layer.LastSrcIdx !== undefined &&
-									layer.LastSrcIdx !== -1 &&
-									layer.Freeze !== undefined &&
-									layer.Freeze === 0
-								) {
-									const sourceId = layer.LastSrcIdx
-									if (sourcePvwDestinations[sourceId]) {
-										sourcePvwDestinations[sourceId].push(`Screen ${dest.Name} L${layer.id}`)
-									}
-								}
-
-								// Only log inactive layers if you need detailed debugging
-								// if ((layer.PgmMode === 0 && layer.PvwMode === 0) || layer.Freeze > 0) {
-								//     this.log('debug', `Screen ${dest.Name} Layer ${layer.id}: INACTIVE (PgmMode: ${layer.PgmMode}, PvwMode: ${layer.PvwMode}, Freeze: ${layer.Freeze}) - Source: ${layer.SrcIdx + 1}`)
-								// }
-							})
-						}
-					} else {
-						this.log('warn', `No response data for screen destination ${dest.id}`)
-					}
-				} catch (err) {
-					this.log('error', `Could not get content for screen destination ${dest.id}: ${err}`)
-				}
+			// Layers on PGM / PVW (frozen layers excluded)
+			for (const layer of content.Layers || []) {
+				if (layer.LastSrcIdx === undefined || layer.LastSrcIdx === -1) continue
+				if (layer.Freeze === undefined || layer.Freeze !== 0) continue
+				const sourceId = layer.LastSrcIdx
+				if (layer.PgmMode > 0 && sourcePgmDestinations[sourceId])
+					sourcePgmDestinations[sourceId].push(`Screen ${dest.Name} L${layer.id}`)
+				if (layer.PvwMode > 0 && sourcePvwDestinations[sourceId])
+					sourcePvwDestinations[sourceId].push(`Screen ${dest.Name} L${layer.id}`)
 			}
 		}
 
-		// Query all AUX destinations
-		if (this.eventmasterData && this.eventmasterData.AuxDestinations) {
-			// this.log('debug', `Querying ${Object.keys(this.eventmasterData.AuxDestinations).length} AUX destinations...`)
-
-			for (const dest of Object.values(this.eventmasterData.AuxDestinations)) {
-				try {
-					// this.log('debug', `Querying AUX destination ${dest.id} (${dest.Name})...`)
-
-					const res = await new Promise((resolve, reject) => {
-						this.eventmaster.listAuxContent(parseInt(dest.id), (err, result) => {
-							if (err) reject(err)
-							else resolve(result)
-						})
-					})
-
-					if (res && res.response) {
-						const auxContent = res.response
-						// this.log('debug', `AUX ${dest.id} content structure: ${JSON.stringify(Object.keys(auxContent))}`)
-
-						// Check PGM source
-						if (auxContent.PgmLastSrcIndex !== undefined) {
-							const sourceId = auxContent.PgmLastSrcIndex
-							if (sourcePgmDestinations[sourceId]) {
-								sourcePgmDestinations[sourceId].push(`AUX ${dest.Name}`)
-								// this.log('debug', `AUX ${dest.Name}: PGM = Source ${sourceId}`)
-							}
-						}
-
-						// Check PVW source
-						if (auxContent.PvwLastSrcIndex !== undefined) {
-							const sourceId = auxContent.PvwLastSrcIndex
-							if (sourcePvwDestinations[sourceId]) {
-								sourcePvwDestinations[sourceId].push(`AUX ${dest.Name}`)
-								// this.log('debug', `AUX ${dest.Name}: PVW = Source ${sourceId}`)
-							}
-						}
-					} else {
-						this.log('warn', `No response data for AUX destination ${dest.id}`)
-					}
-				} catch (err) {
-					this.log('error', `Could not get content for AUX destination ${dest.id}: ${err}`)
-				}
-			}
+		for (const dest of Object.values(this.eventmasterData.AuxDestinations || {})) {
+			const auxContent = this._auxContent?.[dest.id]
+			if (!auxContent) continue
+			if (auxContent.PgmLastSrcIndex !== undefined && sourcePgmDestinations[auxContent.PgmLastSrcIndex])
+				sourcePgmDestinations[auxContent.PgmLastSrcIndex].push(`AUX ${dest.Name}`)
+			if (auxContent.PvwLastSrcIndex !== undefined && sourcePvwDestinations[auxContent.PvwLastSrcIndex])
+				sourcePvwDestinations[auxContent.PvwLastSrcIndex].push(`AUX ${dest.Name}`)
 		}
 
 		// Set variable values for all sources

@@ -71,10 +71,11 @@ function initialState(blank) {
 			{
 				id: 0,
 				Name: 'Screen 1',
-				DestOutMapColl: [{ id: 0, DestOutMap: [{ id: 0, Name: 'Out 1', Freeze: 0 }] }],
+				// 9.2.6318 shape: DestOutMapCol is an object, outputs and auxes carry FrzMode
+				DestOutMapCol: { DestOutMap: [{ id: 0, Name: 'Out 1', FrzMode: 0 }] },
 			},
 		],
-		auxes: [{ id: 0, Name: 'Aux 1', Freeze: 0 }],
+		auxes: [{ id: 0, Name: 'Aux 1', AuxStreamMode: 1, FrzMode: 0 }],
 		presets: [
 			{ id: 0, presetSno: 1.0, Name: 'Preset 1' },
 			{ id: 1, presetSno: 2.0, Name: 'Preset 2' },
@@ -144,10 +145,10 @@ function createMock(opts = {}) {
 				if (src) src.Freeze = 0
 				break
 			case 'freezeScreen':
-				if (scr) scr.DestOutMapColl[0].DestOutMap[0].Freeze = 1
+				if (scr) scr.DestOutMapCol.DestOutMap[0].FrzMode = 1
 				break
 			case 'unfreezeScreen':
-				if (scr) scr.DestOutMapColl[0].DestOutMap[0].Freeze = 0
+				if (scr) scr.DestOutMapCol.DestOutMap[0].FrzMode = 0
 				break
 			case 'take':
 			case 'changeLayerSource':
@@ -157,10 +158,10 @@ function createMock(opts = {}) {
 				if (s.auxContent[0]) s.auxContent[0].PgmLastSrcIndex = 1
 				break
 			case 'freezeAux':
-				if (aux) aux.Freeze = 1
+				if (aux) aux.FrzMode = 1
 				break
 			case 'unfreezeAux':
-				if (aux) aux.Freeze = 0
+				if (aux) aux.FrzMode = 0
 				break
 			case 'renameSource':
 				if (src) src.Name = 'Renamed-1'

@@ -89,7 +89,7 @@ const step = (r, id) => r.results.steps.find((s) => s.id === id)
 	)
 	check(
 		'9.2 mock: A4 diff shows screen output Freeze',
-		step(r, 'A4').diff.some((d) => /DestOutMap\[#0\]\.Freeze: 0 -> 1/.test(d)),
+		step(r, 'A4').diff.some((d) => /DestOutMap\[#0\]\.FrzMode: 0 -> 1/.test(d)),
 	)
 	check(
 		'9.2 mock: A7 take shows layer source change',

@@ -71,15 +71,13 @@ const frame = {
 		{
 			id: 0,
 			Name: 'LED MAIN',
-			DestOutMapColl: [
-				{
-					id: 0,
-					DestOutMap: [
-						{ id: 0, Freeze: 0 },
-						{ id: 1, Freeze: 0 },
-					],
-				},
-			],
+			// Shape returned by 9.2.6318: DestOutMapCol is an object, outputs carry FrzMode
+			DestOutMapCol: {
+				DestOutMap: [
+					{ id: 0, Name: 'Out 1', FrzMode: 0 },
+					{ id: 1, Name: 'Out 2', FrzMode: 0 },
+				],
+			},
 		},
 	],
 	calls: [],
@@ -96,9 +94,7 @@ const server = http.createServer((req, res) => {
 		else if (method === 'freezeDestSource') {
 			if (params.type === 0) frame.sources.find((s) => s.id === params.id).Freeze = params.mode
 			if (params.type === 2)
-				frame.screens
-					.find((s) => s.id === params.id)
-					.DestOutMapColl[0].DestOutMap.forEach((o) => (o.Freeze = params.mode))
+				frame.screens.find((s) => s.id === params.id).DestOutMapCol.DestOutMap.forEach((o) => (o.FrzMode = params.mode))
 		}
 		res.setHeader('content-type', 'application/json')
 		res.end(JSON.stringify({ jsonrpc: '2.0', id: '0', result: { success: 0, response } }))
@@ -180,7 +176,7 @@ server.listen(9999, '127.0.0.1', async () => {
 	check('screen toggle sends type 2 mode 1', sl.params.type === 2 && sl.params.mode === 1)
 	check('screen feedback true', fb('screen_frozen', { destId: 0, match: 'all' }) === true)
 	check('screen variable = Yes', inst.vars.screen_0_frozen === 'Yes')
-	frame.screens[0].DestOutMapColl[0].DestOutMap[1].Freeze = 0
+	frame.screens[0].DestOutMapCol.DestOutMap[1].FrzMode = 0
 	await inst.refreshFreezeState()
 	check(
 		'partial screen freeze: any=true, all=false, var=Partial',
@@ -188,6 +184,34 @@ server.listen(9999, '127.0.0.1', async () => {
 			fb('screen_frozen', { destId: 0, match: 'all' }) === false &&
 			inst.vars.screen_0_frozen === 'Partial',
 	)
+
+	// Barco's 8.2 doc shape (DestOutMapColl array, Freeze) still works, for other firmware
+	const legacy = {
+		DestOutMapColl: [
+			{
+				id: 0,
+				DestOutMap: [
+					{ id: 0, Freeze: 1 },
+					{ id: 1, Freeze: 0 },
+				],
+			},
+		],
+	}
+	check(
+		'doc shape (DestOutMapColl/Freeze) read as fallback',
+		inst
+			.screenOutputs(legacy)
+			.map((o) => inst.outputFreezeValue(o))
+			.join() === '1,0',
+	)
+	inst.setOutputFreeze(legacy.DestOutMapColl[0].DestOutMap[1], 1)
+	check(
+		'optimistic update writes Freeze on doc shape, not FrzMode',
+		legacy.DestOutMapColl[0].DestOutMap[1].Freeze === 1 && legacy.DestOutMapColl[0].DestOutMap[1].FrzMode === undefined,
+	)
+	const single = { DestOutMapCol: { DestOutMap: { id: 0, FrzMode: 1 } } }
+	check('single output object (not array) read', inst.screenOutputs(single).length === 1)
+	check('screen with no outputs is not frozen', inst.isScreenFrozen(99) === false)
 
 	// Overlapping refreshes coalesce rather than stack
 	const before = frame.calls.length

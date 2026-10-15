@@ -91,11 +91,22 @@ source `ScreenDest1_PGM-3` has `DestIndex 0` and is excluded by the filter, as i
 - `emt-capture.pcapng` (EMT's connect sequence) is captured but not analysed: no tshark on this PC,
   and the push needs no handshake anyway.
 
-## Next
+## Implemented (JSON route, 4.5.0-freeze.9)
 
-1. Fix the screen freeze read path (`DestOutMapCol` object, `FrzMode`), keeping `DestOutMapColl` /
-   `Freeze` as a fallback for other firmware. Fix the mock and tests to the real shape.
-2. Implement the XML push client: persistent TCP 9876, stream split on `</System>`, reconnect with
-   backoff, parse only freeze/layer/transition paths, update state and `checkFeedbacks`. Keep JSON-RPC
-   for actions and the structural refresh. Fall back gracefully if 9876 is closed.
-3. Quick check with Companion enabled that JSON-RPC-made changes also arrive on 9876.
+- Screen freeze read from `DestOutMapCol` / `FrzMode`, with `DestOutMapColl` / `Freeze` as fallback.
+- `InputCfgChanged` subscribed. Each debounced batch is routed: add/remove or a structural type
+  (`SourceChanged`, `PresetChanged`, `CueChanged`, `StillChanged`) or a detected rename means a full
+  refresh; otherwise `InputCfgChanged` re-reads `listSources`, and `ScreenDestChanged` /
+  `AUXDestChanged` re-read `listDestinations` plus content for only the notified ids. Tally is
+  computed from a per-destination content cache. Batches arriving mid-update are merged, not dropped.
+- Checked on the real E2 with a separate raw client freezing source 0 and screen 0: the module
+  updated in about 550 ms (mostly the 500 ms debounce) with only the targeted reads, no full refresh.
+  The module's own screen toggle showed within about 20 ms, and the frame really froze.
+
+## Later
+
+- XML push client on 9876, if the inbound notification path proves fragile on show networks: it
+  needs no firewall rule and carries values, so no read-back. Persistent TCP, split on `</System>`,
+  reconnect with backoff, parse only freeze/layer/transition paths.
+- Takes and recalls are not yet checked end to end on the real frame (the kit showed the
+  notifications fire; the module path is covered by mock tests only).
