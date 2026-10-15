@@ -56,8 +56,11 @@ On this frame, unlike the first, notifications **do** fire for live state:
 | Still capture            | `StillChanged`, `SourceChanged`, `BGSourceChanged`, others |
 
 The module's `NOTIFY_EVENTS` doesn't include `InputCfgChanged`, so source freeze would be missed even
-by the JSON route. Why the first frame looked different is unknown: it never subscribed
-`InputCfgChanged`, and stale test subscriptions may have muddied it. Both frames report 9.2.
+by the JSON route.
+
+This is consistent with the first frame, not a contradiction. There, source freeze was tested without
+`InputCfgChanged` subscribed, and screen freeze and takes were never tested. So "freeze doesn't
+notify" on 9.2 was a gap in that test, not frame behaviour.
 
 ## Q3: read-back of freeze via JSON-RPC
 
