@@ -102,11 +102,13 @@ source `ScreenDest1_PGM-3` has `DestIndex 0` and is excluded by the filter, as i
 - Checked on the real E2 with a separate raw client freezing source 0 and screen 0: the module
   updated in about 550 ms (mostly the 500 ms debounce) with only the targeted reads, no full refresh.
   The module's own screen toggle showed within about 20 ms, and the frame really froze.
+- Confirmed by Matt in Companion 5.0.7 with 4.5.0-freeze.10 (fast state polling removed): a freeze
+  made in EMT lights the Companion button, and preset recall and takes in EMT update tally.
 
 ## Later
 
 - XML push client on 9876, if the inbound notification path proves fragile on show networks: it
   needs no firewall rule and carries values, so no read-back. Persistent TCP, split on `</System>`,
   reconnect with backoff, parse only freeze/layer/transition paths.
-- Takes and recalls are not yet checked end to end on the real frame (the kit showed the
-  notifications fire; the module path is covered by mock tests only).
+- After a frame reboot, live updates resume at the next 10-minute re-subscribe (or on reconnecting
+  the connection). Consider re-subscribing sooner if that proves a nuisance on show sites.
