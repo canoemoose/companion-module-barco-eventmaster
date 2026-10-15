@@ -63,7 +63,7 @@ Without live updates, changes made outside Companion show at the next polling in
 
 - **Freeze/Unfreeze Source**: Freeze or unfreeze video sources
 - **Freeze/Unfreeze Destination**: Freeze or unfreeze destination outputs
-- **Arm/Unarm Destination**: Enable/disable destinations for transitions
+- **Arm/Unarm Destination**: Arm, unarm or toggle a screen destination for transitions (toggle uses the armed state the frame reports; the _Arm/Unarm Destinations_ presets include a single toggle button that reads ARMED while armed). Aux arm has no toggle: the frame does not report whether an aux is armed
 - **Freeze Source (Toggle)**: Toggle, freeze or unfreeze an input source using the freeze state reported by the frame
 - **Freeze Screen Destination (Toggle)**: Toggle, freeze or unfreeze a screen destination (toggle unfreezes if any output is frozen)
 - **Freeze Aux Destination (Toggle)**: Toggle, freeze or unfreeze an aux destination

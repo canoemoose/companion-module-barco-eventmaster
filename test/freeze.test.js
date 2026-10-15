@@ -317,6 +317,14 @@ server.listen(9999, '127.0.0.1', async () => {
 		off.feedbacks[0].options.pattern === 'any' && off.feedbacks[0].isInverted === true,
 	)
 	check('Arm preset lights while armed', inst.presets.screen_0_arm.feedbacks[0].feedbackId === 'screen_armed')
+	const at = inst.presets.screen_0_arm_toggle
+	check(
+		'Arm toggle preset: toggle action, armed feedback',
+		at?.category === 'Arm/Unarm Destinations' &&
+			at.steps[0].down[0].actionId === 'arm_unarm_destination' &&
+			at.steps[0].down[0].options.arm === 'toggle' &&
+			at.feedbacks[0].feedbackId === 'screen_armed',
+	)
 	check(
 		'arm, signal and test pattern feedbacks registered',
 		!!inst.feedbacks.screen_armed && !!inst.feedbacks.source_signal_problem && !!inst.feedbacks.test_pattern_active,

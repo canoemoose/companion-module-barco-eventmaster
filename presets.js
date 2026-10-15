@@ -1256,6 +1256,36 @@ module.exports = function getPresets(eventmasterData, _log) {
 			const screen = eventmasterData.ScreenDestinations[key]
 			const screenId = screen.id
 
+			// Arm toggle preset: one button, lit while the frame reports the screen armed
+			presets[`screen_${screenId}_arm_toggle`] = {
+				type: 'button',
+				category: `Arm/Unarm Destinations`,
+				name: `Arm toggle $(eventmaster:screen_${screenId}_name)`,
+				style: {
+					text: `ARM\\n$(eventmaster:screen_${screenId}_name)`,
+					size: '14',
+					color: combineRgb(255, 255, 255),
+					bgcolor: combineRgb(40, 40, 40),
+				},
+				steps: [
+					{
+						down: [{ actionId: 'arm_unarm_destination', options: { destId: screenId, arm: 'toggle' } }],
+						up: [],
+					},
+				],
+				feedbacks: [
+					{
+						feedbackId: 'screen_armed',
+						options: { destId: screenId },
+						style: {
+							text: `ARMED\\n$(eventmaster:screen_${screenId}_name)`,
+							color: combineRgb(0, 0, 0),
+							bgcolor: combineRgb(0, 200, 0),
+						},
+					},
+				],
+			}
+
 			// Arm preset
 			presets[`screen_${screenId}_arm`] = {
 				type: 'button',

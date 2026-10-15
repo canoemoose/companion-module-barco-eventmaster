@@ -95,7 +95,9 @@ const server = http.createServer((req, res) => {
 					},
 				],
 			}
-		else if (method === 'listAuxContent')
+		else if (method === 'armUnarmDestination') {
+			for (const d of params.ScreenDestination || []) frame.content[d.id].armed = params.arm
+		} else if (method === 'listAuxContent')
 			response = {
 				id: params.id,
 				PgmLastSrcIndex: frame.aux[params.id].pgmSrc,
@@ -326,6 +328,25 @@ server.listen(9999, '127.0.0.1', async () => {
 	frame.content[1].armed = 0
 	await notify('ScreenDestChanged', [1])
 	check('screen unarm -> No', await until(() => b.vars.screen_1_armed === 'No', 2000))
+
+	// Arm toggle: uses the reported armed state, and re-reads the screen afterwards
+	const armToggle = () => b.actions.arm_unarm_destination.callback({ options: { destId: 1, arm: 'toggle' } })
+	armToggle()
+	check(
+		'arm toggle arms an unarmed screen',
+		await until(() => frame.content[1].armed === 1 && b.vars.screen_1_armed === 'Yes', 2000),
+	)
+	armToggle()
+	check(
+		'arm toggle again unarms',
+		await until(() => frame.content[1].armed === 0 && b.vars.screen_1_armed === 'No', 2000),
+	)
+	frame.content[1].armed = 1 // armed from EMT
+	await notify('ScreenDestChanged', [1])
+	await until(() => b.vars.screen_1_armed === 'Yes', 2000)
+	armToggle()
+	check('arm toggle after an external arm unarms', await until(() => frame.content[1].armed === 0, 2000))
+	await until(() => b.vars.screen_1_armed === 'No', 2000)
 
 	// Test pattern on the aux: OutputCfgChanged carries the OUTPUT id (1), mapped to aux 0
 	t = frame.calls.length

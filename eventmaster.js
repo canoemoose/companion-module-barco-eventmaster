@@ -2690,15 +2690,18 @@ class BarcoInstance extends InstanceBase {
 					choices: [
 						{ id: 1, label: 'Arm' },
 						{ id: 0, label: 'Unarm' },
+						{ id: 'toggle', label: 'Toggle' },
 					],
 					default: 1,
 				},
 			],
 			callback: (action) => {
+				const destId = parseInt(action.options.destId)
 				const params = {
-					ScreenDestination: [{ id: parseInt(action.options.destId) }],
+					ScreenDestination: [{ id: destId }],
 					AuxDestination: [],
-					arm: parseInt(action.options.arm),
+					// Toggle uses the armed state the frame reported (listContent IsActive)
+					arm: action.options.arm === 'toggle' ? (this.isScreenArmed(destId) ? 0 : 1) : parseInt(action.options.arm),
 				}
 				this.log('debug', `Arm/Unarm Destination with params: ${JSON.stringify(params)}`)
 				this.eventmaster.armUnarmDestination(params, (err, res) => {
