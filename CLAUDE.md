@@ -5,6 +5,7 @@ Read `HANDOFF.md` first: it has the context, findings from the first frame, cons
 The next test is **this afternoon** on a different, **blank** warehouse frame (same v9 firmware, same
 laptop, different network): the kit needs a minimal programming checklist, a readiness check, and a
 network-profile check. Working and rehearsed beats polished.
+Test frame: E2 at 192.168.0.175; laptop: 192.168.0.100.
 
 - Package manager: **npm** (not yarn). Don't commit changes npm makes to upstream's `yarn.lock`
 - Run tests: `npm test` (mock frame on 127.0.0.1:9999; needs that port free)

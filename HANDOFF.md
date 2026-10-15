@@ -3,6 +3,17 @@
 Fork of `bitfocus/companion-module-barco-eventmaster` (base: v4.4.5, commit `9f84de7`).
 Branch: `feature/freeze-toggle-feedback`. Owner: Matt.
 
+## Test session network (this afternoon)
+
+| Item              | Value                                                             |
+| ----------------- | ----------------------------------------------------------------- |
+| Test frame        | Barco Event Master **E2**, blank, latest v9, at **192.168.0.175** |
+| Companion laptop  | **192.168.0.100** (same /24 as the frame)                         |
+| Notification port | 3000                                                              |
+
+Use these as the kit's defaults (overridable by parameter). `192.168.0.175` also happens to be the
+module's default Target IP.
+
 ## Timing
 
 **The test session is this afternoon** (a blank frame in the warehouse), not days away. Aim for a
@@ -73,13 +84,13 @@ across. The kit records
 the frame's firmware to confirm that, rather than assuming it. The test frame will be **blank**:
 see Frame prep below.
 
-| Item              | Value                                                                                                                                     |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Frame             | Barco Event Master E2, latest v9 firmware (9.2.x); test frame is the same version                                                         |
-| Frame IP          | 192.168.0.180                                                                                                                             |
-| Companion PC      | Windows laptop, was 192.168.0.15 on the first frame's network. **Same laptop for the test, on the warehouse network: its IP will differ** |
-| Notification port | 3000 (inbound firewall rule already in place, RemoteAddress **Any**)                                                                      |
-| MVR card          | No Gen 2 HDMI card on that frame. **TSL is ruled out regardless**: it can't carry freeze                                                  |
+| Item              | Value                                                                                                                                  |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Frame             | Barco Event Master E2, latest v9 firmware (9.2.x); test frame is the same version                                                      |
+| Frame IP          | 192.168.0.180 (first frame; test frame is 192.168.0.175)                                                                               |
+| Companion PC      | Windows laptop, was 192.168.0.15 on the first frame's network. **Same laptop for the test, at 192.168.0.100 on the warehouse network** |
+| Notification port | 3000 (inbound firewall rule already in place, RemoteAddress **Any**)                                                                   |
+| MVR card          | No Gen 2 HDMI card on that frame. **TSL is ruled out regardless**: it can't carry freeze                                               |
 
 Diagnosis history for live updates (so it isn't repeated):
 
@@ -146,8 +157,9 @@ Deliver a single folder Matt can copy to the Companion PC, e.g. `frame-test-kit/
 
 1. **`Run-FrameTests.ps1`**: one guided script. Config block at top (frame IP, local IP, port,
    output path). Phases:
-   - **Frame IP prompted** (the test frame's IP may differ). Local IP auto-picked on the frame's subnet
-     (show it, allow override); port defaults to 3000; auth (operator ID / super user password) optional.
+   - **Defaults from the table above:** frame `192.168.0.175`, local `192.168.0.100`, port 3000, all
+     overridable by parameter. Still verify the local IP is actually assigned to an interface on the
+     frame's subnet and warn if not; auth (operator ID / super user password) optional.
    - **Frame identification** (read-only, first thing, saved to results): model, firmware/OS version,
      MAC (`getFrameSettings`), counts of inputs/sources/screens/auxes/presets/stills.
    - **Readiness check** (read-only): confirm the minimum programming from Frame prep exists and list
