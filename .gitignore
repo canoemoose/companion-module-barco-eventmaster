@@ -6,3 +6,6 @@ DEBUG-*
 /.yarn
 .DS_Store
 docs/~$ON_RPC_with_EM_processors_Doc_8_2.docx
+
+# Frame test kit output
+frame-test-kit/results/
