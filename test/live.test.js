@@ -118,6 +118,11 @@ const server = http.createServer((req, res) => {
 		} else if (method === 'listPresets' || method === 'listCues' || method === 'listUserKeys') response = []
 		else if (method === 'powerStatus') response = { 0: { PowerSupply1Status: 1, PowerSupply2Status: 1 } }
 		res.setHeader('content-type', 'application/json')
+		// A frame that doesn't know a call answers with a JSON-RPC error (as the E2 does for listMvrPreset)
+		if (frame.unknownMethods?.includes(method))
+			return res.end(
+				JSON.stringify({ jsonrpc: '2.0', id: '0', error: { code: -32601, message: `Unknown RPC call "${method}"` } }),
+			)
 		res.end(JSON.stringify({ jsonrpc: '2.0', id: '0', result: { success, response } }))
 	})
 })
@@ -503,6 +508,52 @@ server.listen(9999, '127.0.0.1', async () => {
 	check('pollingInterval 0: live mode without heartbeat or backstop', !z0._heartbeatTimer && !z0._backstopTimer)
 	await z0.teardownNotifications()
 	check('teardown leaves live mode', !z0._liveMode)
+
+	// --- A frame like the PDS-4K: no aux destinations, and (possibly) no powerStatus call
+	const savedAuxes = frame.auxes
+	frame.auxes = []
+	frame.unknownMethods = ['powerStatus']
+	const pds = mk({
+		enable_notifications: true,
+		notification_port: 3110,
+		notification_host: '127.0.0.1',
+		pollingInterval: 0.5,
+	})
+	pds._heartbeatMs = 150
+	pds._backstopMs = 60000
+	await pds.getAllDataFromEventmaster()
+	pds.refreshDefinitions()
+	await wait(300)
+	check('no-aux frame: no aux freeze presets', !Object.keys(pds.presets || {}).some((k) => k.startsWith('freeze_aux_')))
+	check(
+		'no-aux frame: freeze, arm, signal and test pattern feedbacks still defined',
+		[
+			'source_frozen',
+			'screen_frozen',
+			'aux_frozen',
+			'screen_armed',
+			'source_signal_problem',
+			'test_pattern_active',
+		].every((f) => !!pds.feedbacks?.[f]),
+	)
+	check(
+		'no-aux frame: test pattern dropdown lists screens only',
+		pds.feedbacks.test_pattern_active.options[0].choices.every((c) => c.id.startsWith('screen:')),
+	)
+	check(
+		'no-aux frame: aux feedbacks answer false, no throw',
+		pds.feedbacks.aux_frozen.callback({ options: { auxId: 0 } }) === false,
+	)
+	await pds.setupNotifications()
+	check('no-powerStatus frame: still goes into live mode', await until(() => pds._liveMode === true, 2000))
+	await wait(1000)
+	const pwWarns = pds.logs.filter(([l, m]) => l === 'warn' && /Power status/.test(m)).length
+	check('no-powerStatus frame: heartbeat keeps frame up (an error reply still means alive)', !pds._frameDown)
+	check(`no-powerStatus frame: power status warning logged once (${pwWarns}), not every heartbeat`, pwWarns === 1)
+	check('no-aux frame: no module errors logged', !pds.logs.some(([l]) => l === 'error'))
+	await pds.teardownNotifications()
+	frame.auxes = savedAuxes
+	frame.unknownMethods = []
 
 	// --- Subscribe rejected
 	frame.subscribeSuccess = 1

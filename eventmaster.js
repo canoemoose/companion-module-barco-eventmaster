@@ -1053,16 +1053,17 @@ class BarcoInstance extends InstanceBase {
 	}
 
 	applyPowerStatus(res) {
-		if (!res || !res.response || typeof res.response !== 'object') {
-			this.log('warn', 'Power status response missing or malformed, skipping')
-			return
+		// Some frames may not report power status: say so once, not on every heartbeat
+		const unusable = (why) => {
+			if (!this._powerStatusWarned) this.log('warn', `${why}; power status variables not updated (logged once)`)
+			this._powerStatusWarned = true
 		}
+		if (!res || !res.response || typeof res.response !== 'object')
+			return unusable('Power status response missing or malformed')
 		const key = Object.keys(res.response)[0]
 		const powerData = key !== undefined ? res.response[key] : undefined
-		if (!powerData) {
-			this.log('warn', 'Power status response contained no power supply data, skipping')
-			return
-		}
+		if (!powerData) return unusable('Power status response contained no power supply data')
+		this._powerStatusWarned = false
 		const powerVariables = {
 			power_status1: this.powerStatus?.[parseInt(powerData.PowerSupply1Status)] || 'Unknown',
 			power_status2: this.powerStatus?.[parseInt(powerData.PowerSupply2Status)] || 'Unknown',
