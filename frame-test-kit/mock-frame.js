@@ -7,6 +7,7 @@
 // --notify rich every action fires a plausible notification type (exercises the results matrix)
 // --xml push    connected 9876 clients get an XML delta on freeze/take; silent sends nothing
 // --blank       frame with nothing programmed (exercises the readiness check)
+// --pds         PDS-4K-like: no aux destinations, powerStatus unknown (for module-check.js rehearsal)
 //
 // Rehearsal only: POST /_mock/do {"action": "..."} simulates the operator doing a step in EMT.
 /* eslint-disable n/no-process-exit -- standalone CLI */
@@ -63,8 +64,26 @@ function initialState(blank) {
 		}
 	return {
 		sources: [
-			{ id: 0, Name: 'HDMI 1-1', InputCfgIndex: 0, StillIndex: -1, DestIndex: -1, UserKeyIndex: -1, Freeze: 0 },
-			{ id: 1, Name: 'HDMI 2-2', InputCfgIndex: 1, StillIndex: -1, DestIndex: -1, UserKeyIndex: -1, Freeze: 0 },
+			{
+				id: 0,
+				Name: 'HDMI 1-1',
+				InputCfgIndex: 0,
+				StillIndex: -1,
+				DestIndex: -1,
+				UserKeyIndex: -1,
+				Freeze: 0,
+				InputCfgVideoStatus: 1,
+			},
+			{
+				id: 1,
+				Name: 'HDMI 2-2',
+				InputCfgIndex: 1,
+				StillIndex: -1,
+				DestIndex: -1,
+				UserKeyIndex: -1,
+				Freeze: 0,
+				InputCfgVideoStatus: 4,
+			},
 			{ id: 2, Name: 'Screen 1-3', InputCfgIndex: -1, StillIndex: -1, DestIndex: 0, UserKeyIndex: -1, Freeze: 0 },
 		],
 		screens: [
@@ -85,6 +104,8 @@ function initialState(blank) {
 			0: {
 				id: 0,
 				Name: 'Screen 1',
+				IsActive: 0,
+				OutputCfg: [{ id: 0, Name: 'Out 1', OutputAOI: [{ id: 0, TestPattern: [{ id: 0, TestPatternMode: 0 }] }] }],
 				BGLyr: [
 					{ id: 0, LastBGSourceIndex: -1 },
 					{ id: 1, LastBGSourceIndex: -1 },
@@ -95,13 +116,33 @@ function initialState(blank) {
 				],
 			},
 		},
-		auxContent: { 0: { id: 0, Name: 'Aux 1', PgmLastSrcIndex: 0, PvwLastSrcIndex: 0 } },
+		// Output ids are frame-wide: the aux owns output 1
+		auxContent: {
+			0: {
+				id: 0,
+				Name: 'Aux 1',
+				PgmLastSrcIndex: 0,
+				PvwLastSrcIndex: 0,
+				OutputCfg: [{ id: 1, Name: 'Out 2', OutputAOI: [{ id: 0, TestPattern: [{ id: 0, TestPatternMode: 0 }] }] }],
+			},
+		},
 	}
 }
 
 function createMock(opts = {}) {
 	const o = { host: '127.0.0.1', jsonPort: 9999, xmlPort: 9876, notify: '92', xml: 'silent', blank: false, ...opts }
 	const s = initialState(o.blank)
+	// --pds: a PDS-4K-like frame for module-check rehearsal: no aux destinations, no powerStatus call
+	if (o.pds) {
+		s.auxes = []
+		s.auxContent = {}
+	}
+	const UNKNOWN = Symbol('unknown method')
+	const setTp = (content, mode) => {
+		for (const out of content?.OutputCfg || [])
+			for (const aoi of out.OutputAOI) for (const tp of aoi.TestPattern) tp.TestPatternMode = mode
+		return (content?.OutputCfg || []).map((out) => out.id)
+	}
 	const subs = []
 	const xmlClients = new Set()
 	const log = []
@@ -195,7 +236,7 @@ function createMock(opts = {}) {
 							Frame: {
 								id: '00:0e:2b:mock',
 								Name: 'MOCK-E2',
-								FrameTypeName: 'E2',
+								FrameTypeName: o.pds ? 'PDS-4K' : 'E2',
 								Version: '9.2.0',
 								OSVersion: 'mock',
 								Enet: { IP: o.host, MacAddress: '00:0E:2B:00:00:00' },
@@ -215,6 +256,44 @@ function createMock(opts = {}) {
 				return s.presets
 			case 'listStill':
 				return s.stills
+			case 'listCues':
+			case 'listUserKeys':
+				return []
+			case 'powerStatus':
+				if (o.pds) return UNKNOWN
+				return { '00:0e:2b:mock': { PowerSupply1Status: 3, PowerSupply2Status: 3 } }
+			// Changes made through the API notify as the real E2 (9.2.6318) does
+			case 'freezeDestSource': {
+				if (params.type === 0) {
+					const src = s.sources.find((x) => x.id === params.id)
+					if (src) src.Freeze = params.mode
+					pushNotification('InputCfgChanged', [src ? src.InputCfgIndex : params.id])
+				} else if (params.type === 2) {
+					const scr = s.screens.find((x) => x.id === params.id)
+					for (const out of scr?.DestOutMapCol?.DestOutMap || []) out.FrzMode = params.mode
+					pushNotification('ScreenDestChanged', [params.id])
+				} else if (params.type === 3) {
+					const aux = s.auxes.find((x) => x.id === params.id)
+					if (aux) aux.FrzMode = params.mode
+					pushNotification('AUXDestChanged', [params.id])
+				}
+				return null
+			}
+			case 'armUnarmDestination':
+				for (const d of params.ScreenDestination || []) {
+					if (s.content[d.id]) s.content[d.id].IsActive = params.arm
+					pushNotification('ScreenDestChanged', [d.id])
+				}
+				for (const d of params.AuxDestination || []) pushNotification('AUXDestChanged', [d.id])
+				return null
+			case 'changeContent':
+				if (params.TestPattern !== undefined)
+					pushNotification('OutputCfgChanged', setTp(s.content[params.id], params.TestPattern))
+				return null
+			case 'changeAuxContent':
+				if (params.TestPattern !== undefined)
+					pushNotification('OutputCfgChanged', setTp(s.auxContent[params.id], params.TestPattern))
+				return null
 			case 'subscribe':
 				subs.push(params)
 				return null
@@ -223,7 +302,7 @@ function createMock(opts = {}) {
 					if (subs[i].hostname === params.hostname && String(subs[i].port) === String(params.port)) subs.splice(i, 1)
 				return null
 			default:
-				return { error: `mock: method ${method} not implemented` }
+				return UNKNOWN
 		}
 	}
 
@@ -245,6 +324,15 @@ function createMock(opts = {}) {
 				return res.end('{}')
 			}
 			const response = rpc(msg.method, msg.params || {})
+			// An unknown call gets a JSON-RPC error, as the real frame answers
+			if (response === UNKNOWN)
+				return res.end(
+					JSON.stringify({
+						jsonrpc: '2.0',
+						id: msg.id,
+						error: { code: -32601, message: `Unknown RPC call "${msg.method}"` },
+					}),
+				)
 			res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { success: 0, response } }))
 		})
 	})
@@ -286,6 +374,7 @@ if (require.main === module) {
 		notify: arg('--notify', '92'),
 		xml: arg('--xml', 'silent'),
 		blank: a.includes('--blank'),
+		pds: a.includes('--pds'),
 	})
 	mock.start().then(
 		() => console.log('Mock frame running. Ctrl+C to stop.'),

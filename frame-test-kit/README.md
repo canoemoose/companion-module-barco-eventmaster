@@ -65,9 +65,40 @@ and the action x notification matrix), raw logs (`notifications.jsonl`, `xml-987
 snapshot per step (`snapshots\`), `frame-settings.json`, and from Phase C `emt-capture.pcapng` plus
 the EMT XML log you saved.
 
+## Module check on another frame (e.g. a PDS-4K)
+
+`module-check.js` runs this repo's module code against a frame and reports whether it answers back
+sensibly: model and firmware, the field shapes the module relies on (freeze, arm, signal, test
+pattern), what the module makes of it, whether live updates subscribe, and whether the heartbeat
+works. About 30 seconds. Run it from the repo checkout (it uses the repo's module and
+`node_modules`), with Companion's node18 so the existing firewall rule applies. It listens on port
+3005, so a running Companion on 3000 is unaffected.
+
+1. Read-only first:
+   ```
+   & "C:\Program Files\Companion\resources\node-runtimes\node18\node.exe" frame-test-kit\module-check.js --frame <PDS IP>
+   ```
+2. If that looks sane and the frame can be touched, add `--changes`. It freezes and unfreezes the
+   first live source and screen 0, arms and unarms screen 0, and puts test pattern bars on screen 0
+   and takes them off, each from a second client. It also freezes and unfreezes an aux, if the frame
+   has one. Each change is only made if that thing starts neutral (unfrozen, unarmed, no pattern),
+   and everything is put back, even after an error. **Screen 0's output shows bars and a freeze for
+   a second or two each.**
+   ```
+   & "C:\Program Files\Companion\resources\node-runtimes\node18\node.exe" frame-test-kit\module-check.js --frame <PDS IP> --changes
+   ```
+
+On the PDS-4K expect: no aux destinations (aux steps skipped), and possibly no `powerStatus` (one
+warning, heartbeat still works). Anything marked FAIL is worth sending back. The report is saved as
+`results\module-check_<model>_<firmware>_<time>.txt`, with the raw frame settings beside it.
+
+Rehearse without a frame: `node frame-test-kit\mock-frame.js --pds` in one window, then
+`module-check.js --frame 127.0.0.1 --local 127.0.0.1 --changes` in another.
+
 ## Files
 
 - `Run-FrameTests.ps1`: entry point (Windows checks, then runs the kit)
 - `kit.js`: the guided test (Node 18, no dependencies)
+- `module-check.js`: the module code against a real frame (see above)
 - `mock-frame.js`: mock frame for rehearsal (options are listed at the top of the file)
 - `FRAME-PREP.md`: minimum programming for a blank frame
