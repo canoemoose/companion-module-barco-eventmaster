@@ -16,7 +16,7 @@ The module will update presets and actions every 15 seconds by default (configur
 - **Auth Value**: Authentication credentials (when required)
 - **Enable Live Updates**: Let the frame notify Companion of changes (freeze, takes, names, presets)
 - **Notification Server Port**: Local port for receiving EventMaster notifications (default: 3000)
-- **Notification Listener IP**: IP address the EventMaster should send notifications to (auto-detected on the frame's subnet if empty)
+- **Notification Server Host**: the address the frame sends notifications to. Leave it blank: the module picks this machine's address on the frame's network (using the real netmask, wired before Wi-Fi, VPN and virtual adapters last), and the connection settings show which address that is. Only fill it in if that's wrong, e.g. Companion behind NAT or in Docker, or the frame on a routed network. A typed address goes stale if the machine moves network. `live_updates_listener` shows the address in use and whether it was auto-detected or set
 
 ---
 

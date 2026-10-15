@@ -281,6 +281,8 @@ class BarcoInstance extends InstanceBase {
 		const port = this.notificationPort || 3000
 		const listenerHost = this.getNotificationHost()
 		this.log('info', `Live updates: listening on ${listenerHost}:${port}, subscribing frame ${this.config.host}`)
+		const typed = String(this.notificationHost || this.config?.notification_host || '').trim()
+		this.setStatusVariables({ live_updates_listener: `${listenerHost}:${port} (${typed ? 'set' : 'auto'})` })
 		this.setStatusVariables({ live_updates_status: 'Starting' })
 
 		this._listenerError = null
@@ -528,16 +530,6 @@ class BarcoInstance extends InstanceBase {
 		this.setVariableValues(values)
 	}
 
-	isLikelySame24Subnet(a, b) {
-		try {
-			const pa = (a || '').split('.')
-			const pb = (b || '').split('.')
-			return pa.length === 4 && pb.length === 4 && pa[0] === pb[0] && pa[1] === pb[1] && pa[2] === pb[2]
-		} catch {
-			return false
-		}
-	}
-
 	getLocalIPv4s() {
 		const out = []
 		try {
@@ -576,29 +568,74 @@ class BarcoInstance extends InstanceBase {
 	 * the same /24 as the frame, else the first non-internal IPv4.
 	 */
 	getNotificationHost() {
-		if (this.notificationHost) return this.notificationHost
-		if (this.config?.notification_host) return this.config.notification_host
+		const typed = String(this.notificationHost || this.config?.notification_host || '').trim()
+		if (typed) return typed
+		const found = this.detectListenerIp()
+		if (found.reason === 'fallback')
+			this.log(
+				'warn',
+				`Live updates: no local interface on the frame's network; using ${found.address} (${found.iface}). Set the notification server host in the config if notifications don't arrive.`,
+			)
+		return found.address
+	}
+
+	// One line for the config form: what auto-detect picks for the saved frame address, and why
+	describeDetectedListener() {
+		if (!this.config?.host) return 'Set the target IP first.'
+		const d = this.detectListenerIp()
+		if (d.reason === 'subnet') return `Uses ${d.address} (${d.iface}), on the frame's network.`
+		if (d.reason === 'fallback')
+			return `No interface on the frame's network: it would guess ${d.address} (${d.iface}). Enter the address the frame should send to.`
+		return 'No network interface found.'
+	}
+
+	/**
+	 * Which of this machine's addresses the frame should send notifications to: the interface on the
+	 * frame's network (by its real netmask; /24 assumed if the system doesn't report one), wired
+	 * before Wi-Fi when several match, else the first interface as a guess.
+	 * @returns {{address: string, iface: string, reason: 'subnet'|'fallback'|'none'}}
+	 */
+	detectListenerIp() {
+		const toInt = (ip) => {
+			const p = String(ip || '')
+				.split('.')
+				.map(Number)
+			return p.length === 4 && p.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)
+				? ((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]) >>> 0
+				: null
+		}
 		const candidates = []
 		try {
 			const ifaces = os.networkInterfaces()
 			for (const name of Object.keys(ifaces)) {
 				for (const iface of ifaces[name] || []) {
-					if (iface.family === 'IPv4' && !iface.internal) candidates.push(iface.address)
+					if (iface.family === 'IPv4' && !iface.internal) candidates.push({ name, ...iface })
 				}
 			}
 		} catch {
 			// ignore
 		}
-		const sameSubnet = candidates.find((ip) => this.isLikelySame24Subnet(ip, this.config?.host))
-		if (sameSubnet) return sameSubnet
-		if (candidates.length > 0) {
-			this.log(
-				'warn',
-				`Live updates: no local interface on the frame's subnet; using ${candidates[0]}. Set the listener IP in the config if notifications don't arrive.`,
-			)
-			return candidates[0]
-		}
-		return '127.0.0.1'
+		const frame = toInt(this.config?.host)
+		const onFrameNet = candidates.filter((c) => {
+			const ip = toInt(c.address)
+			const mask = toInt(c.netmask) ?? toInt('255.255.255.0')
+			return frame !== null && ip !== null && mask !== 0 && (ip & mask) >>> 0 === (frame & mask) >>> 0
+		})
+		// Wired first, then Wi-Fi, then VPN/virtual adapters and point-to-point (/32) links, which are
+		// almost never the way a frame reaches this machine
+		const rank = (c) =>
+			/tailscale|zerotier|wireguard|vpn|vethernet|hyper-v|wsl|vmware|virtualbox|docker|npcap|loopback/i.test(c.name) ||
+			c.netmask === '255.255.255.255'
+				? 2
+				: /wi-?fi|wlan|wireless/i.test(c.name)
+					? 1
+					: 0
+		const best = (list) => [...list].sort((a, b) => rank(a) - rank(b))[0]
+		const pick = best(onFrameNet)
+		if (pick) return { address: pick.address, iface: pick.name, reason: 'subnet' }
+		const guess = best(candidates)
+		if (guess) return { address: guess.address, iface: guess.name, reason: 'fallback' }
+		return { address: '127.0.0.1', iface: 'loopback', reason: 'none' }
 	}
 
 	async getFrameSettings() {
@@ -830,9 +867,18 @@ class BarcoInstance extends InstanceBase {
 			{
 				type: 'textinput',
 				id: 'notification_host',
-				label: 'Notification server host (your local IP address)',
+				label: 'Notification server host (leave blank to auto-detect)',
 				width: 6,
 				placeholder: 'Auto-detect local IP if empty',
+				isVisible: (config) => !!config.enable_notifications,
+			},
+			{
+				// Worked out each time the form opens, so it shows what auto-detect would pick right now
+				type: 'static-text',
+				id: 'notification_host_detected',
+				label: 'Auto-detect',
+				width: 12,
+				value: this.describeDetectedListener(),
 				isVisible: (config) => !!config.enable_notifications,
 			},
 			{
@@ -1214,6 +1260,7 @@ class BarcoInstance extends InstanceBase {
 		variables.push(
 			{ variableId: 'live_updates_status', name: 'Live updates status' },
 			{ variableId: 'live_updates_last', name: 'Last live update received' },
+			{ variableId: 'live_updates_listener', name: 'Address the frame sends live updates to (auto or set)' },
 		)
 
 		// Only update variable definitions if they've changed

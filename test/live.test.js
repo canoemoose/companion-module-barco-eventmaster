@@ -234,6 +234,10 @@ server.listen(9999, '127.0.0.1', async () => {
 	}
 	await b.setupNotifications()
 	check('subscribed status', await until(() => b.vars.live_updates_status === 'Subscribed'))
+	check(
+		'listener variable shows address in use and how chosen',
+		b.vars.live_updates_listener === '127.0.0.1:3101 (set)',
+	)
 	const sp = frame.subs[frame.subs.length - 1]
 	check(
 		'subscribe sends string port + structural events',
@@ -598,12 +602,59 @@ server.listen(9999, '127.0.0.1', async () => {
 	const g = mk({ host: '172.16.5.5' })
 	g.notificationHost = undefined
 	check(
-		'falls back to first interface with a warning',
-		g.getNotificationHost() === '10.20.30.40' && g.logs.some(([l]) => l === 'warn'),
+		'no interface on the frame network: falls back to the wired adapter, with a warning',
+		g.getNotificationHost() === '192.168.0.15' && g.logs.some(([l]) => l === 'warn'),
 	)
 	const h = mk({ host: '192.168.0.180', notification_host: '10.9.9.9' })
 	h.notificationHost = undefined
 	check('configured listener IP wins', h.getNotificationHost() === '10.9.9.9')
+	const padded = mk({ host: '192.168.0.180', notification_host: '  192.168.0.100 ' })
+	padded.notificationHost = undefined
+	check('typed listener IP is trimmed', padded.getNotificationHost() === '192.168.0.100')
+
+	// Real netmask: a /16 network where the frame and this machine differ in the third octet
+	os.networkInterfaces = () => ({
+		'Wi-Fi': [{ family: 'IPv4', internal: false, address: '172.20.1.9', netmask: '255.255.255.0' }],
+		Ethernet: [{ family: 'IPv4', internal: false, address: '10.0.9.9', netmask: '255.255.0.0' }],
+	})
+	const wide = mk({ host: '10.0.5.5' })
+	wide.notificationHost = undefined
+	check(
+		'netmask /16: finds 10.0.9.9 for frame 10.0.5.5 (a /24 guess would miss it)',
+		wide.detectListenerIp().address === '10.0.9.9',
+	)
+	// Wired and Wi-Fi both on the frame's network: wired wins, whatever order the system lists them
+	os.networkInterfaces = () => ({
+		'Wi-Fi': [{ family: 'IPv4', internal: false, address: '192.168.0.50', netmask: '255.255.255.0' }],
+		'Ethernet 2': [{ family: 'IPv4', internal: false, address: '192.168.0.100', netmask: '255.255.255.0' }],
+	})
+	const both = mk({ host: '192.168.0.175' })
+	both.notificationHost = undefined
+	const bd = both.detectListenerIp()
+	check('wired preferred over Wi-Fi on the same network', bd.address === '192.168.0.100' && bd.iface === 'Ethernet 2')
+	check(
+		'form line names the detected address',
+		/Uses 192\.168\.0\.100 \(Ethernet 2\), on the frame's network/.test(both.describeDetectedListener()),
+	)
+	const far = mk({ host: '10.99.0.1' })
+	check(
+		'form line says when it can only guess',
+		/No interface on the frame's network: it would guess/.test(far.describeDetectedListener()),
+	)
+	const field = both.getConfigFields().find((fl) => fl.id === 'notification_host_detected')
+	check('config form carries the detected line', field?.type === 'static-text' && /192\.168\.0\.100/.test(field.value))
+	check(
+		'listener caption says blank means auto-detect',
+		/leave blank to auto-detect/.test(both.getConfigFields().find((fl) => fl.id === 'notification_host').label),
+	)
+	// No interface on the frame's network: guess a real adapter, not the VPN listed first (as on Matt's laptop)
+	os.networkInterfaces = () => ({
+		Tailscale: [{ family: 'IPv4', internal: false, address: '100.110.138.13', netmask: '255.255.255.255' }],
+		WiFi: [{ family: 'IPv4', internal: false, address: '192.168.9.27', netmask: '255.255.255.0' }],
+	})
+	const vpn = mk({ host: '192.168.0.175' })
+	const vd = vpn.detectListenerIp()
+	check('fallback guess skips the VPN adapter listed first', vd.reason === 'fallback' && vd.address === '192.168.9.27')
 	os.networkInterfaces = realNI
 
 	// --- Variable defs
@@ -614,7 +665,7 @@ server.listen(9999, '127.0.0.1', async () => {
 	const ids = a.varDefs.map((v) => v.variableId)
 	check(
 		'status variables defined',
-		['live_updates_status', 'live_updates_last'].every((v) => ids.includes(v)),
+		['live_updates_status', 'live_updates_last', 'live_updates_listener'].every((v) => ids.includes(v)),
 	)
 	check('frame_connection variable gone with the poller', !ids.includes('frame_connection'))
 	a.setStatusVariables({ live_updates_status: 'Subscribed' })
