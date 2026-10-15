@@ -807,16 +807,14 @@ class BarcoInstance extends InstanceBase {
 			{
 				type: 'number',
 				id: 'pollingInterval',
-				label:
-					'Polling interval (seconds, 0 to disable). Used while live updates are off; while they work, a 15 s heartbeat and a full refresh every 5 min replace it',
+				label: 'Polling interval (seconds, 0 = off)',
 				width: 6,
 				default: 15,
 			},
 			{
 				type: 'checkbox',
 				id: 'enable_notifications',
-				label:
-					'Enable live updates (frame notifies freeze, tally and name changes; needs inbound access to this machine)',
+				label: 'Enable live updates',
 				width: 6,
 				default: false,
 			},
