@@ -9,6 +9,8 @@
 		"test": "node test/freeze.test.js && node test/live.test.js && node test/kit.test.js",
 		"format": "prettier --write .",
 		"package": "companion-module-build",
+		"postpackage": "node tools/package.js --check",
+		"package:win": "node tools/package.js",
 		"lint": "eslint ."
 	},
 	"license": "MIT",
