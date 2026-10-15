@@ -211,9 +211,10 @@ Both frames run the latest v9, so results should apply to show frames on that ve
 recorded firmware turns out to differ, flag it. Any implementation should still degrade gracefully
 on older firmware rather than assume push support.
 
-- **XML 9876 pushes freeze and layer/PGM state:** implement an XML push client in the module (persistent
-  TCP, handshake as captured, reconnect with backoff, parse deltas → update freeze + tally state,
-  checkFeedbacks). Keep JSON-RPC for actions. This is the preferred outcome.
+- **Outcome (2026-10-15):** both pushed. The JSON route was implemented (targeted reads on
+  notifications). Matt has ruled out XML in this module: it stays JSON-RPC only. See
+  `docs/frame-test-2026-10-15-findings.md`.
+- ~~**XML 9876 pushes freeze and layer/PGM state:** implement an XML push client.~~ Not for this module.
 - **A JSON type fires on freeze and/or takes:** on that notification, do a _targeted_ read (only the
   affected source/destination: `listSources`, or `listContent` for the ids in `change`) instead of a
   full refresh.

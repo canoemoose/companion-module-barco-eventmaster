@@ -12,7 +12,7 @@ outbound commands, the EMT Ctrl+O log) were not run. Phase A steps A5 and A16 we
 **The frame pushes state deltas on TCP 9876 to any connected client, unsolicited.** The kit's socket
 sent nothing at all and still received every change made in EMT: source, screen and aux freeze, layer
 PGM/PVW state on takes, preset recall, renames, input config. No handshake or registration needed.
-This is the preferred branch of the HANDOFF decision tree: implement an XML push client.
+(This was the preferred branch of the HANDOFF decision tree, but XML is ruled out for this module: see the end of this doc. The JSON route was implemented instead.)
 
 ## Q2: XML on 9876
 
@@ -127,9 +127,8 @@ Checked on the real E2 with the module code:
 
 ## Later
 
-- XML push client on 9876, if the inbound notification path proves fragile on show networks: it
-  needs no firewall rule, carries values (so no read-back) and is the only source of aux armed
-  state. Untested: whether the frame sends a full state dump when a client connects. Persistent TCP, split on `</System>`,
-  reconnect with backoff, parse only freeze/layer/transition paths.
+- **Decided (Matt, 2026-10-15): no XML in this module.** It stays JSON-RPC only, so features whose
+  state only exists in the 9876 XML push (aux armed state) are not supported. Don't propose an XML
+  client for this module. The XML findings above are kept as reference.
 - After a frame reboot, live updates resume at the next 10-minute re-subscribe (or on reconnecting
   the connection). Consider re-subscribing sooner if that proves a nuisance on show sites.
