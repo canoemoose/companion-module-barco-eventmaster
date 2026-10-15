@@ -120,11 +120,16 @@ Checked on the real E2 with the module code:
 - Cable pulled on input 1: one `InputCfgChanged`, variable to No signal within about 20 ms of it.
   Replugged: two `InputCfgChanged` about 1.5 s apart while the input locked; back to OK on the second.
 - Output ids are frame-wide (screen 0 owned output 0, the aux output 1), hence the output-to-destination map.
+- Aux arm re-checked: arming aux 0 fires `AUXDestChanged`, but a full before/after diff of
+  `listDestinations` (types 0 to 3), `listAuxContent`, `listContent`, `listSources`, `listPresets`,
+  `getFrameSettings`, `listInputs` and `listDestinationsForPreset` showed no field change at all. Aux
+  armed state is only available from the 9876 XML push (`AuxDest` `IsActive`).
 
 ## Later
 
 - XML push client on 9876, if the inbound notification path proves fragile on show networks: it
-  needs no firewall rule and carries values, so no read-back. Persistent TCP, split on `</System>`,
+  needs no firewall rule, carries values (so no read-back) and is the only source of aux armed
+  state. Untested: whether the frame sends a full state dump when a client connects. Persistent TCP, split on `</System>`,
   reconnect with backoff, parse only freeze/layer/transition paths.
 - After a frame reboot, live updates resume at the next 10-minute re-subscribe (or on reconnecting
   the connection). Consider re-subscribing sooner if that proves a nuisance on show sites.
