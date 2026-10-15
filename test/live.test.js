@@ -54,8 +54,8 @@ const frame = {
 	calls: [],
 	subs: [],
 	sources: [
-		{ id: 0, Name: 'Cam 1-1', InputCfgIndex: 0, DestIndex: -1, UserKeyIndex: -1, Freeze: 0 },
-		{ id: 1, Name: 'Cam 2-2', InputCfgIndex: 1, DestIndex: -1, UserKeyIndex: -1, Freeze: 0 },
+		{ id: 0, Name: 'Cam 1-1', InputCfgIndex: 0, DestIndex: -1, UserKeyIndex: -1, Freeze: 0, InputCfgVideoStatus: 1 },
+		{ id: 1, Name: 'Cam 2-2', InputCfgIndex: 1, DestIndex: -1, UserKeyIndex: -1, Freeze: 0, InputCfgVideoStatus: 1 },
 	],
 	// Shapes as returned by 9.2.6318: DestOutMapCol is an object, screen and aux freeze is FrzMode
 	screens: [
@@ -63,8 +63,9 @@ const frame = {
 		{ id: 1, Name: 'IMAG', DestOutMapCol: { DestOutMap: [{ id: 0, FrzMode: 0 }] } },
 	],
 	auxes: [{ id: 0, Name: 'Aux 1', AuxStreamMode: 1, FrzMode: 0 }],
-	content: { 0: { pgmSrc: -1 }, 1: { pgmSrc: -1 } },
-	aux: { 0: { pgmSrc: -1 } },
+	// Output ids are frame-wide (screen 0 owns output 0, aux 0 output 1, screen 1 output 2), as on the E2
+	content: { 0: { pgmSrc: -1, armed: 0, out: 0, tp: 0 }, 1: { pgmSrc: -1, armed: 0, out: 2, tp: 0 } },
+	aux: { 0: { pgmSrc: -1, out: 1, tp: 0 } },
 }
 const server = http.createServer((req, res) => {
 	let body = ''
@@ -83,11 +84,30 @@ const server = http.createServer((req, res) => {
 		else if (method === 'listContent')
 			response = {
 				id: params.id,
+				IsActive: frame.content[params.id].armed,
 				BGLyr: [],
 				Layers: [{ id: 0, LastSrcIdx: frame.content[params.id].pgmSrc, PgmMode: 1, PvwMode: 0, Freeze: 0 }],
+				OutputCfg: [
+					{
+						id: frame.content[params.id].out,
+						Name: 'Out',
+						OutputAOI: [{ id: 0, TestPattern: [{ id: 0, TestPatternMode: frame.content[params.id].tp }] }],
+					},
+				],
 			}
 		else if (method === 'listAuxContent')
-			response = { id: params.id, PgmLastSrcIndex: frame.aux[params.id].pgmSrc, PvwLastSrcIndex: -1 }
+			response = {
+				id: params.id,
+				PgmLastSrcIndex: frame.aux[params.id].pgmSrc,
+				PvwLastSrcIndex: -1,
+				OutputCfg: [
+					{
+						id: frame.aux[params.id].out,
+						Name: 'Out',
+						OutputAOI: [{ id: 0, TestPattern: [{ id: 0, TestPatternMode: frame.aux[params.id].tp }] }],
+					},
+				],
+			}
 		else if (method === 'subscribe') {
 			success = frame.subscribeSuccess
 			frame.subs.push(params)
@@ -153,7 +173,10 @@ server.listen(9999, '127.0.0.1', async () => {
 		inst.config = { host: '127.0.0.1', ...cfg }
 		inst.previousVariableValues = {}
 		inst.frameVariableDefinitions = []
-		inst.CHOICES_TESTPATTERN = []
+		inst.CHOICES_TESTPATTERN = [
+			{ label: 'Off', id: '0' },
+			{ label: '100% Color Bars', id: '3' },
+		]
 		inst.CHOICES_FREEZE = []
 		inst.eventmasterData = {
 			presets: {},
@@ -280,6 +303,71 @@ server.listen(9999, '127.0.0.1', async () => {
 	frame.auxes[0].FrzMode = 0
 	await notify('AUXDestChanged', [0])
 	check('AUXDestChanged picks up aux unfreeze', await until(() => b.vars.aux_0_frozen === 'No', 2000))
+
+	// Signal lost on an input: InputCfgChanged -> listSources
+	frame.sources[1].InputCfgVideoStatus = 4
+	await notify('InputCfgChanged', [1])
+	check('signal loss -> source_2_signal = No signal', await until(() => b.vars.source_2_signal === 'No signal', 2000))
+	check('signal problem feedback on', b.feedbacks.source_signal_problem.callback({ options: { source: 1 } }) === true)
+	check('signal OK input not flagged', b.feedbacks.source_signal_problem.callback({ options: { source: 0 } }) === false)
+	frame.sources[1].InputCfgVideoStatus = 1
+	await notify('InputCfgChanged', [1])
+	check('signal back -> OK', await until(() => b.vars.source_2_signal === 'OK', 2000))
+
+	// Screen armed elsewhere: ScreenDestChanged [1] -> listContent(1) gives IsActive
+	frame.content[1].armed = 1
+	await notify('ScreenDestChanged', [1])
+	check('screen arm -> screen_1_armed = Yes', await until(() => b.vars.screen_1_armed === 'Yes', 2000))
+	check(
+		'armed feedback on for screen 1 only',
+		b.feedbacks.screen_armed.callback({ options: { destId: 1 } }) === true &&
+			b.feedbacks.screen_armed.callback({ options: { destId: 0 } }) === false,
+	)
+	frame.content[1].armed = 0
+	await notify('ScreenDestChanged', [1])
+	check('screen unarm -> No', await until(() => b.vars.screen_1_armed === 'No', 2000))
+
+	// Test pattern on the aux: OutputCfgChanged carries the OUTPUT id (1), mapped to aux 0
+	t = frame.calls.length
+	frame.aux[0].tp = 3
+	await notify('OutputCfgChanged', [1])
+	check(
+		'aux test pattern -> aux_0_test_pattern named',
+		await until(() => b.vars.aux_0_test_pattern === '100% Color Bars', 2000),
+	)
+	await wait(100)
+	check(
+		'OutputCfgChanged [1]: re-reads only aux 0 (output 1 mapped to its owner)',
+		since(t, 'listAuxContent', 0) === 1 && since(t, 'listContent') === 0 && since(t, 'listDestinations') === 0,
+	)
+	const tpfb = (dest, pattern) => b.feedbacks.test_pattern_active.callback({ options: { dest, pattern } })
+	check(
+		'test pattern feedback: any + exact match on aux, nothing on screen',
+		tpfb('aux:0', 'any') && tpfb('aux:0', '3') && !tpfb('aux:0', '5') && !tpfb('screen:0', 'any'),
+	)
+	frame.aux[0].tp = 0
+	await notify('OutputCfgChanged', [1])
+	check('aux test pattern off -> Off', await until(() => b.vars.aux_0_test_pattern === 'Off', 2000))
+
+	// An output id we can't place re-reads every destination's content
+	t = frame.calls.length
+	frame.content[1].tp = 3
+	await notify('OutputCfgChanged', [9])
+	check(
+		'unplaced output id: screen 1 pattern still found',
+		await until(() => b.vars.screen_1_test_pattern === '100% Color Bars', 2000),
+	)
+	check(
+		'unplaced output id: all content re-read',
+		since(t, 'listContent', 0) === 1 && since(t, 'listContent', 1) === 1 && since(t, 'listAuxContent', 0) === 1,
+	)
+	frame.content[1].tp = 0
+	await notify('OutputCfgChanged', [2])
+	await until(() => b.vars.screen_1_test_pattern === 'Off', 2000)
+	check(
+		'subscribe includes OutputCfgChanged',
+		frame.subs[frame.subs.length - 1].notification.includes('OutputCfgChanged'),
+	)
 
 	// Rename arrives as an update to an existing id: treated as structural
 	frame.auxes[0].Name = 'Aux Renamed'

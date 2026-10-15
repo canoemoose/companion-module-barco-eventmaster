@@ -22,7 +22,7 @@ The module will update presets and actions every 15 seconds by default (configur
 
 ### **Live Updates (EventMaster Subscriptions)**
 
-With live updates on, the frame notifies Companion when something changes, from anywhere (Companion, EM Toolset or the console), and the module re-reads only what changed. On firmware 9.2 this covers source freeze, screen freeze, takes and recalls (tally), aux changes, renames and preset changes. Feedback follows within about half a second. Nothing is polled beyond the normal polling interval.
+With live updates on, the frame notifies Companion when something changes, from anywhere (Companion, EM Toolset or the console), and the module re-reads only what changed. On firmware 9.2 this covers source, screen and aux freeze, takes and recalls (tally), screen arm, test patterns, input signal, renames and preset changes. Feedback follows within about half a second. Nothing is polled beyond the normal polling interval.
 
 Without live updates, changes made outside Companion show at the next polling interval.
 
@@ -77,6 +77,13 @@ Without live updates, changes made outside Companion show at the next polling in
 - Freeze presets and dropdowns list live inputs only (stills, and destinations or user keys re-entered as sources, are left out)
 - Presets: _Freeze Sources_, _Freeze Screen Destinations_ and _Freeze Aux Destinations_ categories contain ready-made toggle buttons: they read _Freeze_ above the source name, and turn blue reading _FROZEN_ while frozen
 - Freeze made from Companion shows immediately; changes made elsewhere show within about half a second with live updates on, otherwise at the next polling interval
+
+#### **Arm, Signal and Test Pattern Feedback**
+
+- **Screen Destination Armed**: Button lights when the screen destination is armed (selected for transitions). The _Arm/Unarm Destinations_ Arm preset reads _ARMED_ while armed. Aux arm isn't reported by the frame, so there is no aux armed feedback
+- **Source Signal Problem**: Button lights (red) when an input has no usable signal: no signal, format mismatch, out of range or invalid
+- **Test Pattern Active**: Button lights when a test pattern is on a screen or aux destination: any pattern, or a chosen one. The _Test patterns_ presets show _ON_ on the active pattern, and on _Off_ while no pattern is on
+- Variables: `screen_N_armed` (Yes/No), `source_N_signal` (OK, No signal, Format mismatch, Out of range, Invalid), `screen_N_test_pattern` / `aux_N_test_pattern` (pattern name, or Off)
 
 #### **AUX Destinations**
 

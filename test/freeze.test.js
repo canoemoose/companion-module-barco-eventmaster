@@ -298,6 +298,29 @@ server.listen(9999, '127.0.0.1', async () => {
 		'screen preset uses label var',
 		inst.presets.freeze_screen_0.style.text === 'Freeze\\n$(eventmaster:screen_0_label)',
 	)
+	const tps = inst.presets.test_pattern_100_bars_screen_aux_0
+	check(
+		'screen test pattern preset lights for its own pattern',
+		tps.feedbacks[0].feedbackId === 'test_pattern_active' &&
+			tps.feedbacks[0].options.dest === 'screen:0' &&
+			tps.feedbacks[0].options.pattern === '3' &&
+			!tps.feedbacks[0].isInverted,
+	)
+	const tpa = inst.presets.test_pattern_100_bars_0
+	check(
+		'aux test pattern preset now sends auxDestination (was screenDestination only)',
+		tpa.steps[0].down[0].options.auxDestination === '0' && tpa.feedbacks[0].options.dest === 'aux:0',
+	)
+	const off = inst.presets.test_pattern_Off_0
+	check(
+		'Off preset lights while no pattern is on (inverted any)',
+		off.feedbacks[0].options.pattern === 'any' && off.feedbacks[0].isInverted === true,
+	)
+	check('Arm preset lights while armed', inst.presets.screen_0_arm.feedbacks[0].feedbackId === 'screen_armed')
+	check(
+		'arm, signal and test pattern feedbacks registered',
+		!!inst.feedbacks.screen_armed && !!inst.feedbacks.source_signal_problem && !!inst.feedbacks.test_pattern_active,
+	)
 	const pa = inst.presets.freeze_aux_0
 	check(
 		'aux preset: toggle action, aux_frozen feedback, label text',

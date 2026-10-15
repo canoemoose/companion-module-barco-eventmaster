@@ -8,12 +8,14 @@ const _ = require('lodash')
 
 // Event Master notifications (tested on 9.2.6318) cover live state as well as structure:
 // InputCfgChanged on source freeze, ScreenDestChanged on screen freeze and takes (one per
-// transition frame), AUXDestChanged on aux changes. They carry ids only, so each debounced batch
+// transition frame) and arm, AUXDestChanged on aux changes, OutputCfgChanged (with output ids,
+// not destination ids) on test patterns. They carry ids only, so each debounced batch
 // triggers a targeted read of just what changed. See docs/frame-test-2026-10-15-findings.md.
 const NOTIFY_EVENTS = [
 	'ScreenDestChanged',
 	'AUXDestChanged',
 	'InputCfgChanged',
+	'OutputCfgChanged',
 	'SourceChanged',
 	'PresetChanged',
 	'CueChanged',
@@ -327,13 +329,40 @@ class BarcoInstance extends InstanceBase {
 		}
 		const hit = (type) => (counts?.[type] || 0) > 0
 		const addOrRemove = Object.values(snapshot || {}).some((c) => c?.add?.length || c?.remove?.length)
+		const owners = this.outputOwners(ids('OutputCfgChanged'))
 		return {
 			full: addOrRemove || STRUCTURAL_EVENTS.some(hit),
 			sources: hit('InputCfgChanged'),
 			destinations: hit('ScreenDestChanged') || hit('AUXDestChanged'),
-			screens: ids('ScreenDestChanged'),
-			auxes: ids('AUXDestChanged'),
+			screens: [...new Set([...ids('ScreenDestChanged'), ...owners.screens])],
+			auxes: [...new Set([...ids('AUXDestChanged'), ...owners.auxes])],
 		}
+	}
+
+	/**
+	 * OutputCfgChanged carries output ids. Find the screens and auxes that own those outputs from
+	 * the cached content; an output we can't place means re-reading every destination's content.
+	 */
+	outputOwners(outputIds) {
+		const result = { screens: [], auxes: [] }
+		if (!outputIds.length) return result
+		const outIds = (content) => [].concat(content?.OutputCfg ?? []).map((o) => o?.id)
+		const unplaced = new Set(outputIds)
+		for (const [kind, cache] of [
+			['screens', this._screenContent],
+			['auxes', this._auxContent],
+		]) {
+			for (const [id, content] of Object.entries(cache || {})) {
+				const owned = outIds(content).filter((o) => unplaced.has(o))
+				if (owned.length) result[kind].push(Number(id))
+				for (const o of owned) unplaced.delete(o)
+			}
+		}
+		if (unplaced.size) {
+			result.screens = Object.values(this.eventmasterData?.ScreenDestinations || {}).map((d) => d.id)
+			result.auxes = Object.values(this.eventmasterData?.AuxDestinations || {}).map((d) => d.id)
+		}
+		return result
 	}
 
 	/**
@@ -1011,6 +1040,11 @@ class BarcoInstance extends InstanceBase {
 					variableId: `source_${source.id + 1}_label`,
 					name: `${source.Name} - Button label (appended -N removed)`,
 				})
+				if (this.isFreezableSource(source))
+					variables.push({
+						variableId: `source_${source.id + 1}_signal`,
+						name: `${source.Name} - Signal (OK/No signal/Format mismatch/Out of range/Invalid)`,
+					})
 			})
 		}
 
@@ -1043,6 +1077,14 @@ class BarcoInstance extends InstanceBase {
 					variableId: `screen_${screen.id}_label`,
 					name: `Screen ${screen.id} Button label`,
 				})
+				variables.push({
+					variableId: `screen_${screen.id}_armed`,
+					name: `Screen ${screen.id} Armed (Yes/No)`,
+				})
+				variables.push({
+					variableId: `screen_${screen.id}_test_pattern`,
+					name: `Screen ${screen.id} Test pattern (name, or Off)`,
+				})
 			})
 		}
 
@@ -1060,6 +1102,10 @@ class BarcoInstance extends InstanceBase {
 				variables.push({
 					variableId: `aux_${aux.id}_label`,
 					name: `AUX ${aux.id} Button label`,
+				})
+				variables.push({
+					variableId: `aux_${aux.id}_test_pattern`,
+					name: `AUX ${aux.id} Test pattern (name, or Off)`,
 				})
 			})
 		}
@@ -1165,6 +1211,69 @@ class BarcoInstance extends InstanceBase {
 	isAuxFrozen(id) {
 		const aux = this.findAuxById(id)
 		return ((aux?.FrzMode !== undefined ? aux.FrzMode : aux?.Freeze) ?? 0) > 0
+	}
+
+	/**
+	 * Arm, signal and test pattern state. Arm and test pattern come from the cached destination
+	 * content (listContent / listAuxContent), signal from listSources. Aux arm isn't reported by
+	 * JSON-RPC at all (9.2.6318), so only screens have an armed state.
+	 */
+	isScreenArmed(id) {
+		return this._screenContent?.[id]?.IsActive === 1
+	}
+
+	// Active test pattern id on a destination's outputs (first non-zero), 0 when off
+	testPatternOf(kind, id) {
+		const content = kind === 'aux' ? this._auxContent?.[id] : this._screenContent?.[id]
+		for (const out of [].concat(content?.OutputCfg ?? []))
+			for (const aoi of [].concat(out?.OutputAOI ?? []))
+				for (const tp of [].concat(aoi?.TestPattern ?? [])) if (tp?.TestPatternMode > 0) return tp.TestPatternMode
+		return 0
+	}
+
+	testPatternLabel(mode) {
+		if (!mode) return 'Off'
+		return (this.CHOICES_TESTPATTERN || []).find((c) => Number(c.id) === mode)?.label || `Pattern ${mode}`
+	}
+
+	// listSources InputCfgVideoStatus: 0 invalid, 1 OK, 2 format mismatch, 3 out of range, 4 no sync
+	sourceSignal(id) {
+		return this.findSourceById(id)?.InputCfgVideoStatus
+	}
+
+	signalLabel(status) {
+		return ['Invalid', 'OK', 'Format mismatch', 'Out of range', 'No signal'][status] ?? 'Unknown'
+	}
+
+	updateDestinationStateVariables() {
+		const values = {}
+		for (const source of Object.values(this.eventmasterData?.sources || {})) {
+			if (!this.isFreezableSource(source) || source.InputCfgVideoStatus === undefined) continue
+			values[`source_${source.id + 1}_signal`] = this.signalLabel(source.InputCfgVideoStatus)
+		}
+		for (const screen of Object.values(this.eventmasterData?.ScreenDestinations || {})) {
+			values[`screen_${screen.id}_armed`] = this.isScreenArmed(screen.id) ? 'Yes' : 'No'
+			values[`screen_${screen.id}_test_pattern`] = this.testPatternLabel(this.testPatternOf('screen', screen.id))
+		}
+		for (const aux of Object.values(this.eventmasterData?.AuxDestinations || {})) {
+			values[`aux_${aux.id}_test_pattern`] = this.testPatternLabel(this.testPatternOf('aux', aux.id))
+		}
+		const changed = {}
+		for (const [key, value] of Object.entries(values)) {
+			if (this.previousVariableValues[key] !== value) {
+				changed[key] = value
+				this.previousVariableValues[key] = value
+			}
+		}
+		if (Object.keys(changed).length > 0) this.setVariableValues(changed)
+		this.checkFeedbacks('screen_armed', 'source_signal_problem', 'test_pattern_active')
+	}
+
+	// After Companion changes arm or test pattern itself, re-read just that destination
+	refreshDestinationContent(screens, auxes) {
+		this.applyLiveUpdate({ full: false, sources: false, destinations: false, screens, auxes }).catch((err) =>
+			this.log('error', `Destination refresh failed: ${err?.message || err}`),
+		)
 	}
 
 	/**
@@ -1465,6 +1574,8 @@ class BarcoInstance extends InstanceBase {
 
 		// Freeze state (from cached source/destination lists)
 		this.updateFreezeVariablesAndFeedbacks()
+		// Arm, signal and test pattern (from the same caches)
+		this.updateDestinationStateVariables()
 
 		// Update feedbacks to reflect current source activity
 		this.checkFeedbacks()
@@ -1750,7 +1861,10 @@ class BarcoInstance extends InstanceBase {
 				}
 				this.eventmaster.changeAuxContent(params, (err, res) => {
 					if (err) this.log('error', 'EventMaster Error: ' + err)
-					else this.log('debug', 'changeAuxContentTestPattern response: ' + JSON.stringify(res))
+					else {
+						this.log('debug', 'changeAuxContentTestPattern response: ' + JSON.stringify(res))
+						this.refreshDestinationContent([], [params.id])
+					}
 				})
 			},
 		}
@@ -1865,7 +1979,10 @@ class BarcoInstance extends InstanceBase {
 				}
 				this.eventmaster.changeContent(params, (err, res) => {
 					if (err) this.log('error', 'EventMaster Error: ' + err)
-					else this.log('debug', 'changeContentTestPattern response: ' + JSON.stringify(res))
+					else {
+						this.log('debug', 'changeContentTestPattern response: ' + JSON.stringify(res))
+						this.refreshDestinationContent([params.id], [])
+					}
 				})
 			},
 		}
@@ -2586,7 +2703,10 @@ class BarcoInstance extends InstanceBase {
 				this.log('debug', `Arm/Unarm Destination with params: ${JSON.stringify(params)}`)
 				this.eventmaster.armUnarmDestination(params, (err, res) => {
 					if (err) this.log('error', 'EventMaster Error: ' + err)
-					else this.log('debug', 'armUnarmDestination response: ' + JSON.stringify(res))
+					else {
+						this.log('debug', 'armUnarmDestination response: ' + JSON.stringify(res))
+						this.refreshDestinationContent([params.ScreenDestination[0].id], [])
+					}
 				})
 			},
 		}
@@ -3304,6 +3424,89 @@ class BarcoInstance extends InstanceBase {
 				},
 			],
 			callback: (feedback) => this.isAuxFrozen(parseInt(feedback.options.auxId)),
+		}
+
+		feedbacks['screen_armed'] = {
+			type: 'boolean',
+			name: 'Screen Destination Armed',
+			description: 'True when the selected screen destination is armed (selected for transitions)',
+			defaultStyle: {
+				bgcolor: 0x00c800,
+				color: 0x000000,
+			},
+			options: [
+				{
+					type: 'dropdown',
+					label: 'Screen destination',
+					id: 'destId',
+					choices: freezeScreenChoices,
+					default: freezeScreenChoices.length > 0 ? freezeScreenChoices[0].id : 0,
+				},
+			],
+			callback: (feedback) => this.isScreenArmed(parseInt(feedback.options.destId)),
+		}
+
+		feedbacks['source_signal_problem'] = {
+			type: 'boolean',
+			name: 'Source Signal Problem',
+			description:
+				'True when the selected input has no usable signal (no signal, format mismatch, out of range or invalid)',
+			defaultStyle: {
+				bgcolor: 0xc80000,
+				color: 0xffffff,
+			},
+			options: [
+				{
+					type: 'dropdown',
+					label: 'Source',
+					id: 'source',
+					minChoicesForSearch: 5,
+					choices: freezeSourceChoices,
+					default: freezeSourceChoices.length > 0 ? freezeSourceChoices[0].id : 0,
+				},
+			],
+			callback: (feedback) => {
+				const status = this.sourceSignal(parseInt(feedback.options.source))
+				return status !== undefined && status !== 1
+			},
+		}
+
+		const testPatternDestChoices = [
+			...freezeScreenChoices.map((d) => ({ id: `screen:${d.id}`, label: d.label })),
+			...freezeAuxChoices.map((d) => ({ id: `aux:${d.id}`, label: `AUX ${d.label}` })),
+		]
+		feedbacks['test_pattern_active'] = {
+			type: 'boolean',
+			name: 'Test Pattern Active',
+			description: 'True when a test pattern (any, or the one chosen) is on the selected destination',
+			defaultStyle: {
+				bgcolor: 0xffc800,
+				color: 0x000000,
+			},
+			options: [
+				{
+					type: 'dropdown',
+					label: 'Destination',
+					id: 'dest',
+					choices: testPatternDestChoices,
+					default: testPatternDestChoices.length > 0 ? testPatternDestChoices[0].id : 'screen:0',
+				},
+				{
+					type: 'dropdown',
+					label: 'Pattern',
+					id: 'pattern',
+					choices: [
+						{ id: 'any', label: 'Any test pattern' },
+						...(this.CHOICES_TESTPATTERN || []).filter((c) => c.id !== '0'),
+					],
+					default: 'any',
+				},
+			],
+			callback: (feedback) => {
+				const [kind, id] = String(feedback.options.dest || 'screen:0').split(':')
+				const mode = this.testPatternOf(kind, parseInt(id))
+				return feedback.options.pattern === 'any' ? mode > 0 : mode === parseInt(feedback.options.pattern)
+			},
 		}
 
 		return feedbacks

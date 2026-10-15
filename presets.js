@@ -1281,7 +1281,17 @@ module.exports = function getPresets(eventmasterData, _log) {
 						up: [],
 					},
 				],
-				feedbacks: [],
+				feedbacks: [
+					{
+						feedbackId: 'screen_armed',
+						options: { destId: screenId },
+						style: {
+							text: `ARMED\\n$(eventmaster:screen_${screenId}_name)`,
+							color: combineRgb(0, 0, 0),
+							bgcolor: combineRgb(0, 200, 0),
+						},
+					},
+				],
 			}
 
 			// Unarm preset
@@ -1568,6 +1578,27 @@ module.exports = function getPresets(eventmasterData, _log) {
 			],
 		}
 	})
+
+	// Test pattern presets light up from the frame's reported test pattern: a pattern button while
+	// that pattern is on its destination, the Off button while no pattern is on.
+	for (const preset of Object.values(presets)) {
+		const action = preset.steps?.[0]?.down?.[0]
+		if (action?.actionId !== 'testpattern_on_SCREEN' && action?.actionId !== 'testpattern_on_AUX') continue
+		const isAux = action.actionId === 'testpattern_on_AUX'
+		// The aux action reads auxDestination; these presets used to send screenDestination only
+		if (isAux && action.options.auxDestination === undefined)
+			action.options.auxDestination = action.options.screenDestination
+		const destId = isAux ? action.options.auxDestination : action.options.screenDestination
+		const pattern = String(action.options.testPattern)
+		preset.feedbacks = [
+			{
+				feedbackId: 'test_pattern_active',
+				options: { dest: `${isAux ? 'aux' : 'screen'}:${destId}`, pattern: pattern === '0' ? 'any' : pattern },
+				isInverted: pattern === '0',
+				style: { text: 'ON', size: '18', color: combineRgb(255, 200, 0), alignment: 'center:bottom' },
+			},
+		]
+	}
 
 	return presets
 }
