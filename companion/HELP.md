@@ -66,14 +66,16 @@ Without live updates, changes made outside Companion show at the next polling in
 - **Arm/Unarm Destination**: Enable/disable destinations for transitions
 - **Freeze Source (Toggle)**: Toggle, freeze or unfreeze an input source using the freeze state reported by the frame
 - **Freeze Screen Destination (Toggle)**: Toggle, freeze or unfreeze a screen destination (toggle unfreezes if any output is frozen)
+- **Freeze Aux Destination (Toggle)**: Toggle, freeze or unfreeze an aux destination
 
 #### **Freeze Feedback**
 
 - **Source Frozen**: Button lights when the selected source is frozen, whoever froze it (Companion, EM Toolset or the console)
 - **Screen Destination Frozen**: Button lights when any (or all) outputs of the screen destination are frozen
-- Variables: `source_N_frozen` (Yes/No), `screen_N_frozen` (Yes/Partial/No), and `source_N_label` / `screen_N_label` (name with the frame-appended `-N` source/input number removed, e.g. `Cam 1-1` → `Cam 1`)
+- **Aux Destination Frozen**: Button lights when the aux destination is frozen
+- Variables: `source_N_frozen` (Yes/No), `screen_N_frozen` (Yes/Partial/No), `aux_N_frozen` (Yes/No), and `source_N_label` / `screen_N_label` / `aux_N_label` (name with the frame-appended `-N` source/input number removed, e.g. `Cam 1-1` → `Cam 1`)
 - Freeze presets and dropdowns list live inputs only (stills, and destinations or user keys re-entered as sources, are left out)
-- Presets: _Freeze Sources_ and _Freeze Screen Destinations_ categories contain ready-made toggle buttons: they read _Freeze_ above the source name, and turn blue reading _FROZEN_ while frozen
+- Presets: _Freeze Sources_, _Freeze Screen Destinations_ and _Freeze Aux Destinations_ categories contain ready-made toggle buttons: they read _Freeze_ above the source name, and turn blue reading _FROZEN_ while frozen
 - Freeze made from Companion shows immediately; changes made elsewhere show within about half a second with live updates on, otherwise at the next polling interval
 
 #### **AUX Destinations**

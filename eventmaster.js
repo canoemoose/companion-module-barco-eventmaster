@@ -1053,6 +1053,14 @@ class BarcoInstance extends InstanceBase {
 					variableId: `aux_${aux.id}_name`,
 					name: `AUX ${aux.id} Name`,
 				})
+				variables.push({
+					variableId: `aux_${aux.id}_frozen`,
+					name: `AUX ${aux.id} Frozen (Yes/No)`,
+				})
+				variables.push({
+					variableId: `aux_${aux.id}_label`,
+					name: `AUX ${aux.id} Button label`,
+				})
 			})
 		}
 
@@ -1149,6 +1157,16 @@ class BarcoInstance extends InstanceBase {
 		return match === 'all' ? states.every(Boolean) : states.some(Boolean)
 	}
 
+	findAuxById(id) {
+		return Object.values(this.eventmasterData?.AuxDestinations || {}).find((d) => d.id === id)
+	}
+
+	// Aux freeze is FrzMode on each AuxDestination (9.2.6318); Freeze accepted as a fallback
+	isAuxFrozen(id) {
+		const aux = this.findAuxById(id)
+		return ((aux?.FrzMode !== undefined ? aux.FrzMode : aux?.Freeze) ?? 0) > 0
+	}
+
 	/**
 	 * Re-read source and destination lists to pick up freeze changes, then update freeze
 	 * variables and feedbacks. Cheap: two RPC calls. Serialised so overlapping triggers coalesce.
@@ -1205,14 +1223,26 @@ class BarcoInstance extends InstanceBase {
 				}
 			}
 		}
+		for (const aux of Object.values(this.eventmasterData?.AuxDestinations || {})) {
+			const values = {
+				[`aux_${aux.id}_frozen`]: this.isAuxFrozen(aux.id) ? 'Yes' : 'No',
+				[`aux_${aux.id}_label`]: this.buttonLabel(aux.Name),
+			}
+			for (const [key, value] of Object.entries(values)) {
+				if (this.previousVariableValues[key] !== value) {
+					changed[key] = value
+					this.previousVariableValues[key] = value
+				}
+			}
+		}
 		if (Object.keys(changed).length > 0) this.setVariableValues(changed)
-		this.checkFeedbacks('source_frozen', 'screen_frozen')
+		this.checkFeedbacks('source_frozen', 'screen_frozen', 'aux_frozen')
 	}
 
 	/**
 	 * Send a freeze/unfreeze and update the cached state optimistically so the button
 	 * reacts immediately, then confirm against the frame.
-	 * @param {number} type 0 = input source, 2 = screen destination
+	 * @param {number} type 0 = input source, 2 = screen destination, 3 = aux destination
 	 */
 	sendFreeze(type, id, mode) {
 		const params = { type, id, screengroup: 0, mode }
@@ -1228,6 +1258,9 @@ class BarcoInstance extends InstanceBase {
 				if (source) source.Freeze = mode
 			} else if (type === 2) {
 				for (const out of this.screenOutputs(this.findScreenById(id))) this.setOutputFreeze(out, mode)
+			} else if (type === 3) {
+				const aux = this.findAuxById(id)
+				if (aux) this.setOutputFreeze(aux, mode)
 			}
 			this.updateFreezeVariablesAndFeedbacks()
 			this.refreshFreezeState()
@@ -2693,6 +2726,37 @@ class BarcoInstance extends InstanceBase {
 			},
 		}
 
+		// Freeze Aux Destination with toggle
+		actions['frz_aux_toggle'] = {
+			name: 'Freeze Aux Destination (Toggle)',
+			description: 'Toggles freeze on an aux destination based on the state reported by the frame',
+			options: [
+				{
+					type: 'dropdown',
+					label: 'Aux destination',
+					id: 'auxId',
+					choices: CHOICES_AUXDESTINATIONS,
+					default: CHOICES_AUXDESTINATIONS.length > 0 ? CHOICES_AUXDESTINATIONS[0].id : 0,
+				},
+				{
+					type: 'dropdown',
+					label: 'Mode',
+					id: 'mode',
+					choices: [
+						{ id: 'toggle', label: 'Toggle' },
+						{ id: '1', label: 'Freeze' },
+						{ id: '0', label: 'Unfreeze' },
+					],
+					default: 'toggle',
+				},
+			],
+			callback: (action) => {
+				const id = parseInt(action.options.auxId)
+				const mode = action.options.mode === 'toggle' ? (this.isAuxFrozen(id) ? 0 : 1) : parseInt(action.options.mode)
+				this.sendFreeze(3, id, mode)
+			},
+		}
+
 		// List Source Main Backup
 		// actions['list_source_main_backup'] = {
 		// 	name: 'List Source Main Backup',
@@ -3217,6 +3281,29 @@ class BarcoInstance extends InstanceBase {
 				},
 			],
 			callback: (feedback) => this.isScreenFrozen(parseInt(feedback.options.destId), feedback.options.match || 'any'),
+		}
+
+		const freezeAuxChoices = Object.values(this.eventmasterData?.AuxDestinations || {})
+			.sort((a, b) => a.id - b.id)
+			.map((dest) => ({ id: dest.id, label: dest.Name }))
+		feedbacks['aux_frozen'] = {
+			type: 'boolean',
+			name: 'Aux Destination Frozen',
+			description: 'True when the selected aux destination is frozen on the frame',
+			defaultStyle: {
+				bgcolor: 0x0064ff,
+				color: 0xffffff,
+			},
+			options: [
+				{
+					type: 'dropdown',
+					label: 'Aux destination',
+					id: 'auxId',
+					choices: freezeAuxChoices,
+					default: freezeAuxChoices.length > 0 ? freezeAuxChoices[0].id : 0,
+				},
+			],
+			callback: (feedback) => this.isAuxFrozen(parseInt(feedback.options.auxId)),
 		}
 
 		return feedbacks

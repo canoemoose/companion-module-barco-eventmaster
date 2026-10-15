@@ -80,6 +80,8 @@ const frame = {
 			},
 		},
 	],
+	// 9.2.6318 shape: aux freeze is FrzMode on the AuxDestination
+	auxes: [{ id: 0, Name: 'Record-1', AuxStreamMode: 1, FrzMode: 0 }],
 	calls: [],
 }
 const server = http.createServer((req, res) => {
@@ -90,9 +92,10 @@ const server = http.createServer((req, res) => {
 		frame.calls.push({ method, params })
 		let response = null
 		if (method === 'listSources') response = frame.sources
-		else if (method === 'listDestinations') response = { ScreenDestination: frame.screens, AuxDestination: [] }
+		else if (method === 'listDestinations') response = { ScreenDestination: frame.screens, AuxDestination: frame.auxes }
 		else if (method === 'freezeDestSource') {
 			if (params.type === 0) frame.sources.find((s) => s.id === params.id).Freeze = params.mode
+			if (params.type === 3) frame.auxes.find((a) => a.id === params.id).FrzMode = params.mode
 			if (params.type === 2)
 				frame.screens.find((s) => s.id === params.id).DestOutMapCol.DestOutMap.forEach((o) => (o.FrzMode = params.mode))
 		}
@@ -135,8 +138,14 @@ server.listen(9999, '127.0.0.1', async () => {
 	const fb = (id, options) => inst.feedbacks[id].callback({ options })
 	const act = (id, options) => inst.actions[id].callback({ options })
 
-	check('actions registered', !!inst.actions.frz_source_toggle && !!inst.actions.frz_screen_toggle)
-	check('feedbacks registered', !!inst.feedbacks.source_frozen && !!inst.feedbacks.screen_frozen)
+	check(
+		'actions registered',
+		!!inst.actions.frz_source_toggle && !!inst.actions.frz_screen_toggle && !!inst.actions.frz_aux_toggle,
+	)
+	check(
+		'feedbacks registered',
+		!!inst.feedbacks.source_frozen && !!inst.feedbacks.screen_frozen && !!inst.feedbacks.aux_frozen,
+	)
 	check('existing actions intact', !!inst.actions.frz_Source && !!inst.actions.freeze_dest)
 	check('initial: CAM 1 not frozen', fb('source_frozen', { source: 0 }) === false)
 	check('source frozen off-layer is reported (Still Logo)', fb('source_frozen', { source: 2 }) === true)
@@ -213,6 +222,31 @@ server.listen(9999, '127.0.0.1', async () => {
 	check('single output object (not array) read', inst.screenOutputs(single).length === 1)
 	check('screen with no outputs is not frozen', inst.isScreenFrozen(99) === false)
 
+	// Aux
+	check('aux not frozen', fb('aux_frozen', { auxId: 0 }) === false && inst.vars.aux_0_frozen === 'No')
+	act('frz_aux_toggle', { auxId: 0, mode: 'toggle' })
+	await wait(150)
+	const al = frame.calls.filter((c) => c.method === 'freezeDestSource').pop()
+	check(
+		'aux toggle sends type 3 (AuxDestination) mode 1',
+		al.params.type === 3 && al.params.id === 0 && al.params.mode === 1,
+	)
+	check(
+		'aux feedback true and variable Yes',
+		fb('aux_frozen', { auxId: 0 }) === true && inst.vars.aux_0_frozen === 'Yes',
+	)
+	check('frame aux frozen', frame.auxes[0].FrzMode === 1)
+	act('frz_aux_toggle', { auxId: 0, mode: 'toggle' })
+	await wait(150)
+	check('second aux toggle unfreezes', frame.auxes[0].FrzMode === 0 && fb('aux_frozen', { auxId: 0 }) === false)
+	frame.auxes[0].FrzMode = 1 // frozen elsewhere
+	await inst.refreshFreezeState()
+	check('external aux freeze read back (FrzMode)', inst.vars.aux_0_frozen === 'Yes')
+	act('frz_aux_toggle', { auxId: 0, mode: 'toggle' })
+	await wait(150)
+	check('toggle after external aux freeze unfreezes', frame.auxes[0].FrzMode === 0)
+	check('aux label var', inst.vars.aux_0_label === 'Record')
+
 	// Overlapping refreshes coalesce rather than stack
 	const before = frame.calls.length
 	await Promise.all([inst.refreshFreezeState(), inst.refreshFreezeState(), inst.refreshFreezeState()])
@@ -233,7 +267,10 @@ server.listen(9999, '127.0.0.1', async () => {
 	inst.autoPopulateSourceMonitoring = async () => {}
 	inst.updateDestinationVariables()
 	const ids = inst.varDefs.map((v) => v.variableId)
-	check('variable defs include freeze vars', ids.includes('source_1_frozen') && ids.includes('screen_0_frozen'))
+	check(
+		'variable defs include freeze vars',
+		ids.includes('source_1_frozen') && ids.includes('screen_0_frozen') && ids.includes('aux_0_frozen'),
+	)
 
 	// Labels and preset styling
 	const L = (n) => inst.buttonLabel(n)
@@ -261,7 +298,19 @@ server.listen(9999, '127.0.0.1', async () => {
 		'screen preset uses label var',
 		inst.presets.freeze_screen_0.style.text === 'Freeze\\n$(eventmaster:screen_0_label)',
 	)
-	check('label var defs present', ids.includes('source_1_label') && ids.includes('screen_0_label'))
+	const pa = inst.presets.freeze_aux_0
+	check(
+		'aux preset: toggle action, aux_frozen feedback, label text',
+		pa?.category === 'Freeze Aux Destinations' &&
+			pa.style.text === 'Freeze\\n$(eventmaster:aux_0_label)' &&
+			pa.steps[0].down[0].actionId === 'frz_aux_toggle' &&
+			pa.feedbacks[0].feedbackId === 'aux_frozen' &&
+			pa.feedbacks[0].style.text === 'FROZEN\\n$(eventmaster:aux_0_label)',
+	)
+	check(
+		'label var defs present',
+		ids.includes('source_1_label') && ids.includes('screen_0_label') && ids.includes('aux_0_label'),
+	)
 
 	// Only live inputs get freeze presets / dropdown entries
 	const pr = inst.presets

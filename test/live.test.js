@@ -271,6 +271,16 @@ server.listen(9999, '127.0.0.1', async () => {
 	)
 	check('AUXDestChanged: no screen content reads', since(t, 'listContent') === 0)
 
+	// Aux frozen elsewhere: AUXDestChanged -> listDestinations picks up FrzMode
+	t = frame.calls.length
+	frame.auxes[0].FrzMode = 1
+	await notify('AUXDestChanged', [0])
+	check('AUXDestChanged picks up external aux freeze', await until(() => b.vars.aux_0_frozen === 'Yes', 2000))
+	check('aux freeze: no structure refresh, one destinations read', since(t, 'listDestinations') === 1)
+	frame.auxes[0].FrzMode = 0
+	await notify('AUXDestChanged', [0])
+	check('AUXDestChanged picks up aux unfreeze', await until(() => b.vars.aux_0_frozen === 'No', 2000))
+
 	// Rename arrives as an update to an existing id: treated as structural
 	frame.auxes[0].Name = 'Aux Renamed'
 	await notify('AUXDestChanged', [0])

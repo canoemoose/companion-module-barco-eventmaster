@@ -1537,5 +1537,37 @@ module.exports = function getPresets(eventmasterData, _log) {
 		}
 	})
 
+	Object.values(eventmasterData.AuxDestinations || {}).forEach((aux) => {
+		if (!aux || aux.Name === 'no auxes loaded yet') return
+		presets[`freeze_aux_${aux.id}`] = {
+			type: 'button',
+			category: 'Freeze Aux Destinations',
+			name: `Freeze ${aux.Name}`,
+			style: {
+				text: `Freeze\\n$(eventmaster:aux_${aux.id}_label)`,
+				size: 'auto',
+				color: combineRgb(255, 255, 255),
+				bgcolor: combineRgb(40, 40, 40),
+			},
+			steps: [
+				{
+					down: [{ actionId: 'frz_aux_toggle', options: { auxId: aux.id, mode: 'toggle' } }],
+					up: [],
+				},
+			],
+			feedbacks: [
+				{
+					feedbackId: 'aux_frozen',
+					options: { auxId: aux.id },
+					style: {
+						text: `FROZEN\\n$(eventmaster:aux_${aux.id}_label)`,
+						bgcolor: combineRgb(0, 100, 255),
+						color: combineRgb(255, 255, 255),
+					},
+				},
+			],
+		}
+	})
+
 	return presets
 }
