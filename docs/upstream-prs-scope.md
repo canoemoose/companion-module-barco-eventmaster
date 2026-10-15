@@ -2,7 +2,7 @@
 
 Source of truth for turning the fork's work into upstream PRs to `bitfocus/companion-module-barco-eventmaster`.
 Upstream base: v4.4.5, commit `9f84de7`. Fork branch: `feature/freeze-toggle-feedback` (latest build
-`4.5.0-freeze.20`). Background: `HANDOFF.md`, `docs/frame-test-2026-10-15-findings.md`.
+`4.5.1-ee.21`; fork builds are tagged `-ee.N` on a 4.5.1 base so they sort above the earlier `4.5.0-freeze.N` builds). Background: `HANDOFF.md`, `docs/frame-test-2026-10-15-findings.md`.
 
 ## Rules (Matt, 2026-10-15)
 
@@ -16,7 +16,7 @@ Upstream base: v4.4.5, commit `9f84de7`. Fork branch: `feature/freeze-toggle-fee
   code (`9f84de7`, unchanged) against a real frame. Mock runs only check a script works; they are not
   evidence. A claim that can't be reproduced on hardware doesn't go in a PR.
 - Fork-only, never upstreamed: `frame-test-kit/` (incl. `module-check.js`), `tools/package.js`, `docs/`,
-  `HANDOFF.md`, `CLAUDE.md`, the `freeze.N` versions, `package-lock.json`. Don't touch `yarn.lock`.
+  `HANDOFF.md`, `CLAUDE.md`, the `-ee.N` (formerly `-freeze.N`) version tags, `package-lock.json`. Don't touch `yarn.lock`.
 - No XML (9876) in this module.
 
 ## Proposed PRs
