@@ -120,10 +120,14 @@ Checked on the real E2 with the module code:
 - Cable pulled on input 1: one `InputCfgChanged`, variable to No signal within about 20 ms of it.
   Replugged: two `InputCfgChanged` about 1.5 s apart while the input locked; back to OK on the second.
 - Output ids are frame-wide (screen 0 owned output 0, the aux output 1), hence the output-to-destination map.
-- Aux arm re-checked: arming aux 0 fires `AUXDestChanged`, but a full before/after diff of
-  `listDestinations` (types 0 to 3), `listAuxContent`, `listContent`, `listSources`, `listPresets`,
-  `getFrameSettings`, `listInputs` and `listDestinationsForPreset` showed no field change at all. Aux
-  armed state is only available from the 9876 XML push (`AuxDest` `IsActive`).
+- Aux arm re-checked with a full raw dump: arming aux 0 fires `AUXDestChanged`, but the raw replies of
+  all 24 read calls the E2 answers (every 8.2-doc read: `getFrameSettings`, `powerStatus`,
+  `listSources`, `listInputs`, `listOutputs`, `listSourceMainBackup`, `listStill`, `listCues`,
+  `listUserKeys`, `listOperators`, `listPresets`, `listDestinations` types 0 to 3, `listContent` and
+  `listAuxContent` per destination, `listDestinationsForPreset` per preset) were identical unarmed,
+  armed and unarmed again. Aux armed state is only in the 9876 XML push (`AuxDest` `IsActive`), which
+  this module won't use. `listMvrPreset` (v10, a different stack) is an unknown call on 9.2.
+  Raw dump: `frame-test-kit/results/aux-arm-dump-2026-10-15-16-16-36/` (not committed).
 
 ## Later
 
