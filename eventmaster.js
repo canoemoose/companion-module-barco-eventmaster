@@ -20,10 +20,27 @@ const NOTIFY_EVENTS = [
 	'PresetChanged',
 	'CueChanged',
 	'StillChanged',
+	'FrameChanged',
+	'BGSourceChanged',
+	'NativeRateChanged',
 ]
-// Types that mean names or lists changed: refresh everything, not just live state
-const STRUCTURAL_EVENTS = ['SourceChanged', 'PresetChanged', 'CueChanged', 'StillChanged']
+// Types that mean names, lists or frame settings changed: refresh everything, not just live state
+const STRUCTURAL_EVENTS = [
+	'SourceChanged',
+	'PresetChanged',
+	'CueChanged',
+	'StillChanged',
+	'FrameChanged',
+	'BGSourceChanged',
+	'NativeRateChanged',
+]
 const RESUBSCRIBE_MS = 10 * 60 * 1000
+// While live updates are working, the full poll is replaced by a one-call heartbeat (to notice the
+// frame going away and coming back, e.g. a reboot, which drops subscriptions) and a slow full refresh
+// as a backstop for anything the frame doesn't notify (user keys, for one).
+const HEARTBEAT_MS = 15 * 1000
+const BACKSTOP_MS = 5 * 60 * 1000
+const MISSED_HEARTBEATS_FOR_DOWN = 2
 
 class BarcoInstance extends InstanceBase {
 	constructor(internal) {
@@ -276,6 +293,7 @@ class BarcoInstance extends InstanceBase {
 			this._listenerError = msg
 			this.log('error', `Live updates listener error: ${msg}`)
 			this.setStatusVariables({ live_updates_status: `Error: ${msg}` })
+			this.stopLivePolling(true) // notifications can't arrive: back to the full poll
 		}
 		listener.onSubscribed = (ok, detail) => {
 			// A listener failure (e.g. port in use) means notifications can't arrive, whatever the frame says
@@ -286,9 +304,11 @@ class BarcoInstance extends InstanceBase {
 			if (ok) {
 				this.log('info', `Live updates: subscribed (${listenerHost}:${port})`)
 				this.setStatusVariables({ live_updates_status: 'Subscribed' })
+				this.startLivePolling()
 			} else {
 				this.log('error', `Live updates: subscribe failed: ${detail}`)
 				this.setStatusVariables({ live_updates_status: `Subscribe failed: ${detail}` })
+				this.stopLivePolling(true)
 			}
 		}
 		listener.onPull = async ({ counts, snapshot }) => {
@@ -316,6 +336,80 @@ class BarcoInstance extends InstanceBase {
 		if (!this.notificationActive || !this._notificationListener) return
 		this.log('debug', `Live updates: re-subscribing (${reason})`)
 		this._notificationListener.resubscribe()
+	}
+
+	/**
+	 * Live updates are working: replace the full poll with a one-call heartbeat and a slow full
+	 * refresh. A polling interval of 0 means no polling at all, so neither runs then.
+	 */
+	startLivePolling() {
+		if (this._liveMode) return
+		this._liveMode = true
+		if (this.polling_interval) {
+			clearInterval(this.polling_interval)
+			this.polling_interval = undefined
+		}
+		if (this.config?.pollingInterval === 0) {
+			this.log('debug', 'Live updates on, polling disabled: no heartbeat or backstop refresh')
+			return
+		}
+		const heartbeatMs = this._heartbeatMs || HEARTBEAT_MS
+		const backstopMs = this._backstopMs || BACKSTOP_MS
+		this._missedHeartbeats = 0
+		this._frameDown = false
+		this._heartbeatTimer = setInterval(() => this.heartbeatTick(), heartbeatMs)
+		this._backstopTimer = setInterval(() => this.refreshStructure('backstop refresh'), backstopMs)
+		this.log(
+			'info',
+			`Live updates working: full poll replaced by a ${heartbeatMs / 1000} s heartbeat and a full refresh every ${backstopMs / 60000} min`,
+		)
+	}
+
+	// Live updates stopped or failed. restoreFullPoll: go back to the normal full poll
+	stopLivePolling(restoreFullPoll) {
+		if (this._heartbeatTimer) clearInterval(this._heartbeatTimer)
+		if (this._backstopTimer) clearInterval(this._backstopTimer)
+		this._heartbeatTimer = undefined
+		this._backstopTimer = undefined
+		const wasLive = this._liveMode
+		this._liveMode = false
+		if (restoreFullPoll && wasLive && this.eventmaster) {
+			this.log('info', 'Live updates not working: back to the full poll')
+			this.eventmasterPoller()
+		}
+	}
+
+	/**
+	 * One small read (power status, which also keeps the PSU variables current). Two misses in a row
+	 * mean the frame is down; the first answer after that means it's back, possibly rebooted and so
+	 * without our subscription: re-subscribe and refresh everything at once.
+	 */
+	async heartbeatTick() {
+		if (!this.eventmaster || this._heartbeatInFlight) return
+		this._heartbeatInFlight = true
+		try {
+			const res = await new Promise((resolve, reject) => {
+				this.eventmaster.powerStatus((err, result) => (err ? reject(err) : resolve(result)))
+			})
+			if (this._frameDown) {
+				this._frameDown = false
+				this.log('info', 'Frame responding again: re-subscribing live updates and refreshing')
+				this.updateStatus(InstanceStatus.Ok)
+				this.resubscribeNotifications('frame back online')
+				await this.refreshStructure('frame back online')
+			}
+			this._missedHeartbeats = 0
+			this.applyPowerStatus(res)
+		} catch (err) {
+			this._missedHeartbeats = (this._missedHeartbeats || 0) + 1
+			if (this._missedHeartbeats === MISSED_HEARTBEATS_FOR_DOWN) {
+				this._frameDown = true
+				this.log('warn', `Frame not responding (${err?.message || err}): will re-subscribe when it returns`)
+				this.updateStatus(InstanceStatus.ConnectionFailure, 'Frame not responding')
+			}
+		} finally {
+			this._heartbeatInFlight = false
+		}
 	}
 
 	/**
@@ -460,6 +554,7 @@ class BarcoInstance extends InstanceBase {
 	}
 
 	async teardownNotifications() {
+		this.stopLivePolling(false)
 		if (this._resubscribeTimer) {
 			clearInterval(this._resubscribeTimer)
 			this._resubscribeTimer = null
@@ -662,6 +757,8 @@ class BarcoInstance extends InstanceBase {
 	// Polling function to keep data updated
 	eventmasterPoller() {
 		if (!this.config) return
+		// Live updates working: the heartbeat and backstop refresh replace this poll
+		if (this._liveMode) return
 
 		// Always clear any existing poller before (re)starting to avoid stacking timers.
 		if (this.polling_interval) {
@@ -710,7 +807,8 @@ class BarcoInstance extends InstanceBase {
 			{
 				type: 'number',
 				id: 'pollingInterval',
-				label: 'Polling Interval (in seconds) for presets and actions (type 0 to disable)',
+				label:
+					'Polling interval (seconds, 0 to disable). Used while live updates are off; while they work, a 15 s heartbeat and a full refresh every 5 min replace it',
 				width: 6,
 				default: 15,
 			},
@@ -949,36 +1047,40 @@ class BarcoInstance extends InstanceBase {
 						else resolve(result)
 					})
 				})
-				if (!res || !res.response || typeof res.response !== 'object') {
-					this.log('warn', 'Power status response missing or malformed, skipping')
-					return
-				}
-				const key = Object.keys(res.response)[0]
-				const powerData = key !== undefined ? res.response[key] : undefined
-				if (!powerData) {
-					this.log('warn', 'Power status response contained no power supply data, skipping')
-					return
-				}
-				const powerVariables = {
-					power_status1: this.powerStatus[parseInt(powerData.PowerSupply1Status)] || 'Unknown',
-					power_status2: this.powerStatus[parseInt(powerData.PowerSupply2Status)] || 'Unknown',
-				}
-
-				// Apply change tracking for power status variables
-				const changedPowerVariables = {}
-				Object.entries(powerVariables).forEach(([key, value]) => {
-					if (this.previousVariableValues[key] !== value) {
-						changedPowerVariables[key] = value
-						this.previousVariableValues[key] = value
-					}
-				})
-
-				if (Object.keys(changedPowerVariables).length > 0) {
-					this.setVariableValues(changedPowerVariables)
-				}
+				this.applyPowerStatus(res)
 			} catch (err) {
 				this.log('error', 'EventMaster Power Status Error: ' + err)
 			}
+		}
+	}
+
+	applyPowerStatus(res) {
+		if (!res || !res.response || typeof res.response !== 'object') {
+			this.log('warn', 'Power status response missing or malformed, skipping')
+			return
+		}
+		const key = Object.keys(res.response)[0]
+		const powerData = key !== undefined ? res.response[key] : undefined
+		if (!powerData) {
+			this.log('warn', 'Power status response contained no power supply data, skipping')
+			return
+		}
+		const powerVariables = {
+			power_status1: this.powerStatus?.[parseInt(powerData.PowerSupply1Status)] || 'Unknown',
+			power_status2: this.powerStatus?.[parseInt(powerData.PowerSupply2Status)] || 'Unknown',
+		}
+
+		// Apply change tracking for power status variables
+		const changedPowerVariables = {}
+		Object.entries(powerVariables).forEach(([key, value]) => {
+			if (this.previousVariableValues[key] !== value) {
+				changedPowerVariables[key] = value
+				this.previousVariableValues[key] = value
+			}
+		})
+
+		if (Object.keys(changedPowerVariables).length > 0) {
+			this.setVariableValues(changedPowerVariables)
 		}
 	}
 

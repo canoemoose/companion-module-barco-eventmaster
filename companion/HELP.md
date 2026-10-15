@@ -11,7 +11,7 @@ The module will update presets and actions every 15 seconds by default (configur
 ### **Configuration Options**
 
 - **Target IP**: IP address of the EventMaster device
-- **Polling Interval**: How often to refresh data (in seconds, 0 to disable)
+- **Polling Interval**: How often to refresh everything while live updates are off (seconds, 0 to disable). While live updates work it is replaced by a light heartbeat (see below)
 - **Authentication Mode**: None, Operator ID, or Super User Password
 - **Auth Value**: Authentication credentials (when required)
 - **Enable Live Updates**: Let the frame notify Companion of changes (freeze, takes, names, presets)
@@ -22,7 +22,9 @@ The module will update presets and actions every 15 seconds by default (configur
 
 ### **Live Updates (EventMaster Subscriptions)**
 
-With live updates on, the frame notifies Companion when something changes, from anywhere (Companion, EM Toolset or the console), and the module re-reads only what changed. On firmware 9.2 this covers source, screen and aux freeze, takes and recalls (tally), screen arm, test patterns, input signal, renames and preset changes. Feedback follows within about half a second. Nothing is polled beyond the normal polling interval.
+With live updates on, the frame notifies Companion when something changes, from anywhere (Companion, EM Toolset or the console), and the module re-reads only what changed. On firmware 9.2 this covers source, screen and aux freeze, takes and recalls (tally), screen arm, test patterns, input signal, renames and preset changes. Feedback follows within about half a second.
+
+While live updates are working, the full poll stops. Instead the module makes one small request every 15 seconds (a heartbeat, which also keeps the power supply variables current) and a full refresh every 5 minutes, for anything the frame doesn't notify (such as user keys). If live updates stop working (subscribe refused, listener error), the normal polling interval comes back. A polling interval of 0 turns the heartbeat and the 5-minute refresh off too.
 
 Without live updates, changes made outside Companion show at the next polling interval.
 
@@ -34,7 +36,7 @@ Without live updates, changes made outside Companion show at the next polling in
 #### **Network Requirements**
 
 - The frame connects **to** Companion, so the notification port must accept inbound TCP from the frame's IP (Windows: check the network profile is Private and the port is allowed inbound)
-- Subscriptions are lost when the frame restarts; the module re-subscribes every 10 minutes, so after a frame reboot live updates resume within 10 minutes (or disable and re-enable the connection to resume at once)
+- Subscriptions are lost when the frame restarts. The heartbeat notices the frame going away (logged once) and coming back, then re-subscribes and refreshes straight away, so live updates resume within about 15 seconds of the frame answering again. The module also re-subscribes every 10 minutes as a backstop
 
 ---
 

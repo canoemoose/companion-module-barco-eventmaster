@@ -116,6 +116,7 @@ const server = http.createServer((req, res) => {
 		} else if (method === 'unsubscribe') {
 			frame.subs = frame.subs.filter((s) => !(s.hostname === params.hostname && s.port === params.port))
 		} else if (method === 'listPresets' || method === 'listCues' || method === 'listUserKeys') response = []
+		else if (method === 'powerStatus') response = { 0: { PowerSupply1Status: 1, PowerSupply2Status: 1 } }
 		res.setHeader('content-type', 'application/json')
 		res.end(JSON.stringify({ jsonrpc: '2.0', id: '0', result: { success, response } }))
 	})
@@ -431,6 +432,77 @@ server.listen(9999, '127.0.0.1', async () => {
 	await b.setupNotifications()
 	check('re-setup on same port works', await until(() => b.vars.live_updates_status === 'Subscribed'))
 	await b.teardownNotifications()
+
+	// --- Heartbeat instead of the full poll while live updates work (short timings for the test)
+	const hbi = mk({
+		enable_notifications: true,
+		notification_port: 3108,
+		notification_host: '127.0.0.1',
+		pollingInterval: 0.5,
+	})
+	hbi._heartbeatMs = 200
+	hbi._backstopMs = 1500
+	await hbi.getAllDataFromEventmaster()
+	hbi.eventmasterPoller()
+	check('before subscribing: full poll running', !!hbi.polling_interval)
+	let hFull = 0
+	const hRS = hbi.refreshStructure.bind(hbi)
+	hbi.refreshStructure = async (r) => {
+		hFull++
+		return hRS(r)
+	}
+	await hbi.setupNotifications()
+	check('subscribed -> live mode', await until(() => hbi._liveMode === true, 2000))
+	check('live mode: full poll stopped, heartbeat running', !hbi.polling_interval && !!hbi._heartbeatTimer)
+	hbi.eventmasterPoller() // e.g. the initial load finishing after the subscribe
+	check('eventmasterPoller does not restart the full poll in live mode', !hbi.polling_interval)
+	let t0 = frame.calls.length
+	await wait(1000)
+	const hb = frame.calls.slice(t0).filter((c) => c.method === 'powerStatus').length
+	const fullReads = frame.calls.slice(t0).filter((c) => c.method === 'listPresets').length
+	check(
+		'heartbeat is one call (' + hb + ' powerStatus in 1 s at 200 ms), no full reads yet (' + fullReads + ')',
+		hb >= 3 && hb <= 6 && fullReads === 0,
+	)
+	check('backstop full refresh runs', await until(() => hFull >= 1, 2000))
+
+	// Frame reboots: unreachable, comes back with no subscriptions
+	const warnsBefore = hbi.logs.filter(([l, m]) => l === 'warn' && /not responding/.test(m)).length
+	frame.up = false
+	await wait(1000)
+	const downWarns = hbi.logs.filter(([l, m]) => l === 'warn' && /not responding/.test(m)).length - warnsBefore
+	check('outage logged once (' + downWarns + '), not every heartbeat', downWarns === 1)
+	frame.subs = frame.subs.filter((s) => s.port !== '3108') // a reboot forgets subscriptions
+	const fullBefore = hFull
+	frame.up = true
+	check('frame back -> re-subscribed', await until(() => frame.subs.some((s) => s.port === '3108'), 3000))
+	check('frame back -> full refresh', await until(() => hFull > fullBefore, 3000))
+	check(
+		'frame back logged',
+		hbi.logs.some(([l, m]) => l === 'info' && /responding again/.test(m)),
+	)
+
+	// Live updates stop working: back to the full poll
+	hbi._notificationListener.onSubscribed(false, 'test')
+	check(
+		'subscribe failure -> full poll restored, heartbeat stopped',
+		!hbi._liveMode && !!hbi.polling_interval && !hbi._heartbeatTimer,
+	)
+	await hbi.teardownNotifications()
+	if (hbi.polling_interval) clearInterval(hbi.polling_interval)
+
+	// Polling interval 0 means no polling at all, heartbeat included
+	const z0 = mk({
+		enable_notifications: true,
+		notification_port: 3109,
+		notification_host: '127.0.0.1',
+		pollingInterval: 0,
+	})
+	await z0.setupNotifications()
+	await until(() => z0._liveMode === true, 2000)
+	check('pollingInterval 0: live mode without heartbeat or backstop', !z0._heartbeatTimer && !z0._backstopTimer)
+	await z0.teardownNotifications()
+	check('teardown leaves live mode', !z0._liveMode)
 
 	// --- Subscribe rejected
 	frame.subscribeSuccess = 1
