@@ -130,10 +130,22 @@ Checked on the real E2 with the module code:
   this module won't use. `listMvrPreset` (v10, a different stack) is an unknown call on 9.2.
   Raw dump: `frame-test-kit/results/aux-arm-dump-2026-10-15-16-16-36/` (not committed).
 
+## Heartbeat and reboot recovery (4.5.0-freeze.15)
+
+While live updates work, the full poll (10+ calls every 15 s) is replaced by one `powerStatus` call every
+15 s and a full refresh every 5 min. On the E2 that measured 2 calls in 40 s instead of about 30.
+`powerStatus` replies `{"<frame MAC>": {"PowerSupply1Status": 3, "PowerSupply2Status": 3}}` (3 = OK).
+
+Power-cycled the E2 (Matt, 2026-10-15 17:35):
+
+- First missed heartbeat 17:35:55 (connection refused), second 17:36:18: "Frame not responding" logged
+  once, then silence while it booted.
+- Frame's API answered at 17:37:38 (about 2 min boot): re-subscribed and refreshed in the same second.
+- Arming screen 0 at 17:37:49 delivered `ScreenDestChanged`: live updates working again straight away.
+
 ## Later
 
 - **Decided (Matt, 2026-10-15): no XML in this module.** It stays JSON-RPC only, so features whose
   state only exists in the 9876 XML push (aux armed state) are not supported. Don't propose an XML
   client for this module. The XML findings above are kept as reference.
-- After a frame reboot, live updates resume at the next 10-minute re-subscribe (or on reconnecting
-  the connection). Consider re-subscribing sooner if that proves a nuisance on show sites.
+- User keys have no notification type: they rely on the 5-minute backstop refresh.
