@@ -22,8 +22,9 @@ const NOTIFY_EVENTS = [
 	'StillChanged',
 	'FrameChanged',
 	'BGSourceChanged',
-	'NativeRateChanged',
 ]
+// No NativeRateChanged: the PDS-4K rejects the whole subscribe if it is listed ("not applicable for
+// PDS"), and the slow full refresh picks up a native rate change anyway.
 // Types that mean names, lists or frame settings changed: refresh everything, not just live state
 const STRUCTURAL_EVENTS = [
 	'SourceChanged',
@@ -32,7 +33,6 @@ const STRUCTURAL_EVENTS = [
 	'StillChanged',
 	'FrameChanged',
 	'BGSourceChanged',
-	'NativeRateChanged',
 ]
 const RESUBSCRIBE_MS = 10 * 60 * 1000
 // While live updates are working, the full poll is replaced by a one-call heartbeat (to notice the

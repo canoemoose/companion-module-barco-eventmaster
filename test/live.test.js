@@ -244,6 +244,8 @@ server.listen(9999, '127.0.0.1', async () => {
 		sp.port === '3101' && sp.notification.includes('PresetChanged') && sp.notification.includes('ScreenDestChanged'),
 	)
 	check('subscribe includes InputCfgChanged (source freeze)', sp.notification.includes('InputCfgChanged'))
+	// The PDS-4K rejects the whole subscribe if NativeRateChanged is listed
+	check('subscribe leaves out NativeRateChanged (PDS-4K)', !sp.notification.includes('NativeRateChanged'))
 	await notify('PresetChanged')
 	check('PresetChanged triggers structure refresh', await until(() => structureRefreshes === 1, 2000))
 	check('live_updates_last set', /PresetChanged x1/.test(b.vars.live_updates_last || ''))

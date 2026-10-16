@@ -47,7 +47,7 @@ const NOTIFICATION_TYPES = [
 	'ScreenDestChanged',
 	'AUXDestChanged',
 	'FrameChanged',
-	'NativeRateChanged',
+	// No NativeRateChanged: the PDS-4K rejects the whole subscribe if it is listed
 	'SourceChanged',
 	'BGSourceChanged',
 	'CueChanged',

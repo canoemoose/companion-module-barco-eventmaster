@@ -138,6 +138,8 @@ function createMock(opts = {}) {
 		s.auxContent = {}
 	}
 	const UNKNOWN = Symbol('unknown method')
+	// A call the frame refuses: answered with success -1 and this message as the response
+	const REJECT = Symbol('rejected')
 	const setTp = (content, mode) => {
 		for (const out of content?.OutputCfg || [])
 			for (const aoi of out.OutputAOI) for (const tp of aoi.TestPattern) tp.TestPatternMode = mode
@@ -295,6 +297,9 @@ function createMock(opts = {}) {
 					pushNotification('OutputCfgChanged', setTp(s.auxContent[params.id], params.TestPattern))
 				return null
 			case 'subscribe':
+				// The PDS-4K (9.2.5963) refuses the whole subscribe if any type is E2-only
+				if (o.pds && (params.notification || []).includes('NativeRateChanged'))
+					return { [REJECT]: 'NativeRateChanged is not applicable for PDS.' }
 				subs.push(params)
 				return null
 			case 'unsubscribe':
@@ -332,6 +337,10 @@ function createMock(opts = {}) {
 						id: msg.id,
 						error: { code: -32601, message: `Unknown RPC call "${msg.method}"` },
 					}),
+				)
+			if (response?.[REJECT])
+				return res.end(
+					JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { success: -1, response: response[REJECT] } }),
 				)
 			res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { success: 0, response } }))
 		})
