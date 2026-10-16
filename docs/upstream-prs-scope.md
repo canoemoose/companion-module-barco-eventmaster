@@ -162,6 +162,47 @@ The behaviour each proof rests on (the reply is only supporting):
   read-back flips; the layer freeze control freezes it. Already seen with direct JSON-RPC calls
   (2026-10-16 11:24); still to repeat through upstream's own code.
 
+### Results (2026-10-16, harness `frame-test-kit/upstream-proof.js`)
+
+The harness runs upstream `9f84de7` unchanged from a git worktree (`../eventmaster-upstream-9f84de7`,
+on this repo's `node_modules`; same dependency ranges), logs every JSON-RPC request and reply, every
+notification and which numbered upstream server got it, and the module's log. Transcripts:
+`frame-test-kit/results/upstream-proof-<claim>_<frame>_<version>_<UTC time>.txt` (results are
+gitignored: copy the ones a PR cites). Run on Windows, Companion's node18 (v18.20.8). Screen 0's arm is
+toggled and put back to make the frame send `ScreenDestChanged`.
+
+Reading the code again before running changed two claims:
+
+- **1 is narrower**: of upstream's 21 aux test pattern presets only the **Off** preset (`testPattern
+0`) sends `screenDestination`; the other 20 send `auxDestination`. Claim: the aux Off preset sends
+  `id: NaN` (JSON `null`). What the frame does with that is to be watched
+- **3 and 4 don't crash**: since Express 5 (upstream locks 5.2.1; here 5.3.0) `app.listen` hands a
+  listen error to its callback, and `barco-eventmaster`'s callback ignores it and logs "listening"
+  anyway. Plain Node on this PC does raise `EADDRINUSE` for both cases (checked)
+
+| #   | E2 9.2.6373                                                                                                                                                                                                                                                                                                                                                                                                 | PDS-4K 9.2.5963                                                         | Verdict                                                                                       |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| 2   | Upstream sends `unsubscribe` with `hostname` = the callback and no port or types; on the wire `{}`. Frame rejects it: JSON-RPC error -32603 `TypeError: Cannot call method 'forEach' of undefined` (the library drops `error`, so upstream's "Unsubscribe completed" never logs). A previous run's subscription got 2/2 notifications after upstream's clean start; control: 0/2 after a proper unsubscribe | Same; error `Cannot read property 'indexOf' of undefined`; 2/2 then 0/2 | **Proven** on both                                                                            |
+| 3   | Config save, same port: server #2 `EADDRINUSE`, silently (module logs nothing wrong); leaked server #1 keeps receiving, so updates continue by accident. Port changed 3006 -> 3007: #3 listens and receives, and the old port 3006 still answers HTTP 200 (server #1 never closed)                                                                                                                          | Same                                                                    | **Proven, reworded**: teardown leaks the notification server; a later listen fails silently   |
+| 4   | Port held by another process: upstream's server `EADDRINUSE` silently; module status `ok`, process keeps running (no crash); the frame's notifications arrive at the other process instead (2/2)                                                                                                                                                                                                            | Same                                                                    | **Proven, reworded**: live updates fail silently and the other process gets the notifications |
+| 5   | Numeric port accepted (`success 0`) and notified 2/2, same as a string port                                                                                                                                                                                                                                                                                                                                 | Same                                                                    | **Refuted**: not a bug, drop from the PRs                                                     |
+
+- **1, E2 9.2.6373 (15:15, Matt on AuxDest1X): proven.** Upstream's `test_pattern_Off_0` preset
+  carries `{"screenDestination":"0","testPattern":"0"}`; its action sends `changeAuxContent
+{"id":null,"TestPattern":0}`; the frame answers `success -1`, `"Aux dest. id = null Not Found"`.
+  Colour bars (put on from another client at 15:15:09) stayed on the output through it, and read-back
+  stayed `TestPatternMode 3` 20 s later; the control (same action with `auxDestination`) cleared them
+  at 15:15:31, read-back 0. The PDS-4K has no aux: N/A.
+
+- **6, PDS-4K 9.2.5963 (15:20 to 15:22, Matt on PGM1, moving HDMIInput1 in LayerB on program):
+  proven.** Upstream's `frz_Source` (`freezeDestSource` type 0, source 0) held 20 s: read-back
+  `Freeze 1`, output stayed live. Upstream's `freeze_dest` (type 2, screen 0) held 20 s: read-back
+  `FrzMode 1`, output stayed live. Control, layer freeze (`changeContent` LayerB `Freeze 1`) held
+  20 s: output froze. Justifies hiding both on a PDS-4K.
+
+**All six claims run.** For the PRs: 1, 2, 3 (reworded), 4 (reworded) and 6 proven, each with the
+firmware it was proven on; 5 dropped.
+
 ## Hardware session plan (E2 + PDS-4K on one network)
 
 0. Frame setup is Claude's job (Matt, 2026-10-15), within what JSON-RPC allows: put each frame in a
@@ -247,7 +288,10 @@ The behaviour each proof rests on (the reply is only supporting):
 - [x] Preview presets added (fork `4.4.6-ee.25`): a program and a preview button per layer, action and
       feedback bus set together; button text ends `L<n> PGM` / `L<n> PVW`
 - [ ] **Next:** Matt checks the `-ee.25` preview presets on the E2 single layer; then commit
-- [ ] Upstream proof harness written (not started; loads `9f84de7` via a git worktree sharing
-      `node_modules`; rehearse on mock for correctness only)
-- [ ] Hardware session: module-check on both frames; upstream proofs 1 to 5
+- [x] Upstream proof harness written (`frame-test-kit/upstream-proof.js`; worktree
+      `../eventmaster-upstream-9f84de7`, kept for reruns; rehearsed on the mock first)
+- [x] Hardware session: module-check on both frames; upstream proofs 1 to 6 (see "Results"). Claims
+      2, 3, 4 on both frames; 1 on the E2 (only it has an aux); 6 on the PDS-4K
+- [ ] **Next:** decide the PR split from the results (claim 5 out; 3 and 4 reworded), then cut
+      branches from upstream master and draft PR text
 - [ ] PR split confirmed; branches cut; PR text drafted (Matt pushes/opens)
