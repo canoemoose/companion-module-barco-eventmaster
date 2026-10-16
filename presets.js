@@ -1653,15 +1653,11 @@ module.exports = function getPresets(eventmasterData, _log, freeze = {}) {
 		}
 	}
 
-	// Test pattern presets light up from the frame's reported test pattern: a pattern button while
-	// that pattern is on its destination, the Off button while no pattern is on.
+	// Test pattern presets light up while their pattern is on the destination
 	for (const preset of Object.values(presets)) {
 		const action = preset.steps?.[0]?.down?.[0]
 		if (action?.actionId !== 'testpattern_on_SCREEN' && action?.actionId !== 'testpattern_on_AUX') continue
 		const isAux = action.actionId === 'testpattern_on_AUX'
-		// The aux action reads auxDestination; these presets used to send screenDestination only
-		if (isAux && action.options.auxDestination === undefined)
-			action.options.auxDestination = action.options.screenDestination
 		const destId = isAux ? action.options.auxDestination : action.options.screenDestination
 		const pattern = String(action.options.testPattern)
 		// Background only: the 72x58 pattern icon leaves the button's background showing round it, so

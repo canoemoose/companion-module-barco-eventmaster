@@ -312,6 +312,32 @@ server.listen(9999, '127.0.0.1', async () => {
 	)
 	const off = inst.presets.test_pattern_Off_0
 	check(
+		'aux Off preset sends auxDestination, not screenDestination',
+		off.steps[0].down[0].options.auxDestination === '0' && off.steps[0].down[0].options.screenDestination === undefined,
+	)
+	// Upgrade script: buttons made from the old aux Off preset get auxDestination
+	const [fixAux] = require(path.join(MOD, 'upgrades.js'))
+	const oldButton = {
+		id: 'x',
+		controlId: 'c',
+		actionId: 'testpattern_on_AUX',
+		options: { screenDestination: '0', testPattern: '0' },
+	}
+	const screenButton = {
+		id: 'y',
+		controlId: 'd',
+		actionId: 'testpattern_on_SCREEN',
+		options: { screenDestination: '0', testPattern: '0' },
+	}
+	const up = fixAux({}, { config: null, actions: [oldButton, screenButton], feedbacks: [] })
+	check(
+		'upgrade moves screenDestination to auxDestination on old aux buttons only',
+		up.updatedActions.length === 1 &&
+			oldButton.options.auxDestination === '0' &&
+			oldButton.options.screenDestination === undefined &&
+			screenButton.options.screenDestination === '0',
+	)
+	check(
 		'Off preset has no feedback (its transparent icon would turn the whole button yellow)',
 		off.feedbacks.length === 0,
 	)
