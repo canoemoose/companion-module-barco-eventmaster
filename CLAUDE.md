@@ -1,17 +1,26 @@
 # CLAUDE.md
 
-Read `HANDOFF.md` first: it has the context, findings from the first frame, constraints and the next job
-(a frame test kit for Barco Event Master push updates, then implementation).
-The next test is **this afternoon** on a different, **blank** warehouse frame (same v9 firmware, same
-laptop, different network): the kit needs a minimal programming checklist, a readiness check, and a
-network-profile check. Working and rehearsed beats polished.
-Test frame: E2 at 192.168.0.175; laptop: 192.168.0.100.
+**Current job: read `docs/upstream-prs-scope.md` first.** It is the source of truth: the rules for the
+upstream PRs (minimal, standalone, no tests, no version bumps, every upstream claim proven on real
+hardware by observed frame behaviour), the PR split, the claims to prove, and the hardware session plan.
 
+Background, in order of usefulness: `docs/frame-test-2026-10-15-findings.md` (what the E2 actually does
+on 9.2.6318), then `HANDOFF.md` (the original brief and history; its "next job" is done).
+
+Hardware (2026-10-16): an E2 and a PDS-4K on the same network, Matt at the frames. The E2 gets a 9.2
+point release before testing, so recheck it first. IPs: ask Matt. Claude sets frames to a known state
+over JSON-RPC; programming (creating destinations) is EMT, and the PDS-4K never needs it.
+
+- Fork build numbering: `4.4.6-ee.N` (upstream is 4.4.5). Fork-only, never in a PR
 - Package manager: **npm** (not yarn). Don't commit changes npm makes to upstream's `yarn.lock`
 - Run tests: `npm test` (mock frame on 127.0.0.1:9999; needs that port free)
 - Format/lint: `npm run format`, `npm run lint`
 - Package on Windows: `npm run package:win` (plain `npm run package` breaks under Volta's npm shims and
   can write a .tgz with no `main.js`; see `tools/package.js`). Either way the package is checked for
   `pkg/main.js` and the command fails if it's missing
+- Run frame scripts with Companion's node18 (`C:\Program Files\Companion\resources\node-runtimes\node18\node.exe`):
+  its existing firewall rule covers any port. Use a port other than 3000 when Companion is running
 - Keep module code Node 18 compatible (Companion's bundled runtime)
-- Do not add periodic polling of the frame by default
+- Do not add periodic polling of the frame by default. With live updates working, the module uses a
+  one-call heartbeat every 15 s and a full refresh every 5 min instead of the full poll
+- No XML (port 9876) in this module (Matt's decision)

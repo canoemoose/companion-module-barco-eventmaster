@@ -1,5 +1,9 @@
 # Handoff: barco-eventmaster Companion fork (freeze feedback + live state)
 
+> **Historical (2026-10-15).** This was the original brief. Its "next job" (the frame test kit, then
+> implementation) is done. Current work: `docs/upstream-prs-scope.md`. What the hardware actually does:
+> `docs/frame-test-2026-10-15-findings.md`. Sections below are kept for history and may be out of date.
+
 Fork of `bitfocus/companion-module-barco-eventmaster` (base: v4.4.5, commit `9f84de7`).
 Branch: `feature/freeze-toggle-feedback`. Owner: Matt.
 

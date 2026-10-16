@@ -94,7 +94,11 @@ The behaviour each proof rests on (the reply is only supporting):
 
 - [x] Fork feature work done and verified on the E2 (freeze, tally, arm, signal, test pattern,
       heartbeat, reboot recovery)
-- [x] `module-check.js` ready (rehearsed on mocks only)
-- [ ] Upstream proof harness written (rehearse on mock for correctness only)
+- [x] `module-check.js` ready (rehearsed on mocks only; E2-like and `mock-frame.js --pds`)
+- [x] Fork build `4.4.6-ee.21` packaged: listener auto-detect with hint, heartbeat, arm/signal/test
+      pattern feedback, aux freeze
+- [ ] **Next:** after the E2 point release, `module-check.js --changes` on the E2, then the PDS-4K
+- [ ] Upstream proof harness written (not started; loads `9f84de7` via a git worktree sharing
+      `node_modules`; rehearse on mock for correctness only)
 - [ ] Hardware session: module-check on both frames; upstream proofs 1 to 5
 - [ ] PR split confirmed; branches cut; PR text drafted (Matt pushes/opens)
