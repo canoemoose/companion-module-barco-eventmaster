@@ -34,6 +34,13 @@ Points that bear on the PRs and proofs:
 - **PRs change no version numbers.** In this repo only the maintainer bumps versions, in separate
   release commits; the one outside contributor PR (#123) changed none (checked 2026-10-15).
 - No XML (9876) in this module.
+- **PR text opens with** (Matt, 2026-10-16): "Generated with Claude Code;
+  Claude writes better JavaScript than I do. Tested against actual hardware." No footer. Drafts live
+  in `docs/prs/`.
+- **Existing buttons**: where a PR changes a preset's action options, it ships an upgrade script so
+  buttons already made from it are fixed (Matt). A preset that only gains a feedback can't be
+  upgraded; say so in the PR text. Upgrade scripts are indexed by Companion: keep the fork's
+  `upgrades.js` in the same order as upstream's.
 
 ## Proposed PRs
 
