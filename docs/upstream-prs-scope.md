@@ -2,7 +2,7 @@
 
 Source of truth for turning the fork's work into upstream PRs to `bitfocus/companion-module-barco-eventmaster`.
 Upstream base: v4.4.5, commit `9f84de7`. Fork branch: `feature/freeze-toggle-feedback` (latest build
-`4.4.6-ee.21`; fork builds are `<upstream next patch>-ee.N`, so they sort above upstream 4.4.5 and below its next release. Older `4.5.0-freeze.N` builds sort higher: remove them from Companion). Background: `HANDOFF.md`, `docs/frame-test-2026-10-15-findings.md`.
+`4.4.6-ee.25`; fork builds are `<upstream next patch>-ee.N`, so they sort above upstream 4.4.5 and below its next release. Older `4.5.0-freeze.N` builds sort higher: remove them from Companion). Background: `HANDOFF.md`, `docs/frame-test-2026-10-15-findings.md`.
 
 Barco's current protocol reference: **R5919184/02 (2026-01-27)**, "Remote control protocol, Event Master
 series", https://www.barco.com/manuals/R5919184/index.html, with separate 9.x and 10.x command chapters,
@@ -40,6 +40,18 @@ Points that bear on the PRs and proofs:
 1. **Freeze control and feedback** (new feature). Source/screen/aux freeze toggle actions, frozen
    feedbacks, `*_frozen` / `*_label` variables, freeze presets, live-input-only dropdowns. Screen freeze
    reads `DestOutMapCol`/`FrzMode` with `DestOutMapColl`/`Freeze` fallback. Works with plain polling.
+   Plus **layer freeze** (`frz_layer_toggle`, `layer_frozen`, `screen_S_layer_N_pgm_frozen` /
+   `_pvw_frozen`, "Freeze Layers" presets). One entry per layer, grouped by Z order; **the bus picks
+   whatever of the layer is on it at press time** (Matt, 2026-10-16): program = `PgmMode 1`, preview
+   = `PvwMode 1`. **Freeze belongs to the physical layer, never the bus** (Matt): a single (E2) or
+   split (PDS-4K) layer on program reads both modes, is one layer, and can't be frozen on one bus
+   only, so it counts for both: both feedbacks show its state and either button changes it. Only a
+   mixing pair can differ by bus (two physical layers). Toggle unfreezes if any is frozen, else freezes all, in one
+   `changeContent`; feedback true if any is frozen. Chosen because JSON-RPC doesn't say whether a
+   PDS-4K layer is split: a split layer with both halves on program freezes both. And on a **PDS-4K** (`FrameType` 6) the fork's source/screen freeze toggles,
+   feedbacks, presets and variables are hidden, and so are upstream's `frz_Source`/`freeze_dest`
+   (Matt, 2026-10-16; claim 6 must prove they don't work there). Proven on the output: E2 9.2.6373 input, layer, output, aux, background; PDS-4K
+   9.2.5963 layer only.
 2. **Live updates** (fixes + rework). Listener rewrite, all notification types, targeted reads, tally
    cache, heartbeat replacing the full poll while subscribed, reboot recovery, netmask-aware auto-detect,
    detected-address hint, listener caption. Cites proven upstream bugs 2 to 4 below.
@@ -64,15 +76,44 @@ Three freezes in Event Master (Matt):
 E2 freeze result so far was watched in Toolset only, never on a monitor. PDS-4K 9.2.5963, PGM1 on a
 monitor, moving test card on HDMIInput1 in LayerA on program:
 
-| Freeze | JSON-RPC                                               | Read-back                  | Toolset         | Output                                        |
-| ------ | ------------------------------------------------------ | -------------------------- | --------------- | --------------------------------------------- |
-| Input  | `freezeDestSource` type 0                              | source `Freeze` 1          | green on layer  | not frozen                                    |
-| Layer  | `changeContent {id, Layers: [{id, Freeze: 1}]}`        | layer `Freeze` 1           | blue            | **frozen**                                    |
-| Output | `freezeDestSource` type 2                              | `DestOutMapCol` `FrzMode` 1 | nothing         | not frozen                                    |
+| Freeze | JSON-RPC                                        | Read-back                   | Toolset        | Output     |
+| ------ | ----------------------------------------------- | --------------------------- | -------------- | ---------- |
+| Input  | `freezeDestSource` type 0                       | source `Freeze` 1           | green on layer | not frozen |
+| Layer  | `changeContent {id, Layers: [{id, Freeze: 1}]}` | layer `Freeze` 1            | blue           | **frozen** |
+| Output | `freezeDestSource` type 2                       | `DestOutMapCol` `FrzMode` 1 | nothing        | not frozen |
 
 - Confirmed by a second run (11:24 to 11:26), each held 20 s with Matt on the monitor: input shows
   active in Toolset but nothing freezes; layer shows in Toolset and freezes; output shows nothing and
   does nothing. Full snapshot after: back to baseline
+- **Layers (Matt):** a mixing layer is an A/B pair, one on program and one on preview, swapping on a
+  transition; a layer frozen on preview stays frozen through the transition. A **single layer** is
+  added as such (not split from a pair): it can only be transitioned on or off program, and while it
+  is on program a preview change hits program instantly. In `listContent` (E2 9.2.6373) a single
+  layer is one entry with no `-A`/`-B` suffix (`Layer3`); `LinkLayerId` is -1 for all. **A pair
+  shares `PgmZOrder`/`PvwZOrder`, a single layer's is unique** (E2: Layer1-A/B 0, Layer2-A/B 2,
+  Layer3 4; PDS-4K: LayerA/B both 0). Names differ by model (`Layer1-A` vs `LayerA`), so pair by Z
+  order, not by name. Layer checks, E2 9.2.6373 on a monitor (11:49 to 11:52):
+  1. **Notification**: a layer freeze and its release each send one `ScreenDestChanged`
+     `update: [0]`, which the module already answers with a `listContent` read
+  2. **Through a transition**: Layer2-B frozen on preview, Matt transitions in EMT: Layer2-B is now
+     `PgmMode 1` and still `Freeze 1`, frozen on the output; Layer2-A takes preview unfrozen. Freeze
+     belongs to the physical layer, so resolving program/preview at press time picks the right one
+  3. **Single layer on program** reads `PgmMode 1` and `PvwMode 1` together (a pair never does);
+     freezing it froze the output
+  4. **PDS-4K split layer** (9.2.5963, PGM1, 12:19 to 12:24): splitting LayerA/B changes nothing
+     structural over JSON-RPC: same names, both still Z 0/0, `LinkLayerId` and `listDestinations`
+     unchanged. Only the modes show it. Pair on program A `Pgm 1 Pvw 0` / B `Pgm 0 Pvw 1`; split,
+     both on preview: both `Pgm 0 Pvw 1`; split, B on program: A `Pgm 0 Pvw 1`, B `Pgm 1 Pvw 1`;
+     split, both on program: both `Pgm 1 Pvw 1`; **still split** (12:24), both taken off program: A
+     `Pgm 0 Pvw 0`, B `Pgm 0 Pvw 1`, which is exactly the pattern of a pair off program. So split vs
+     pair can't always be told from the modes. `getFrameSettings` (about 1 KB, no layer fields) and
+     `listDestinations` type 1 (same as type 0) checked at 12:29 while split. **Split (12:31) vs
+     unsplit (12:32), everything read** (sources, destinations type 0 and 1, all content, frame
+     settings): only LayerB's source and window moved; modes both `Pgm 0 Pvw 0` in each. **JSON-RPC
+     does not expose whether a PDS-4K layer is split.**
+  5. **Reorder**: mixing layers reorder only among mixing layers and singles among singles; a layer's
+     position is set by creation order. Matt: a pair's halves always keep one Z order. Not observed:
+     the swap wouldn't apply on the frame
 - Front-panel freeze changed exactly one value in a full snapshot: `listContent` PGM1
   `Layers[0].Freeze` 0 to 1. Toolset on the PDS-4K has no input or output freeze buttons.
 - Layer freeze over `changeContent` is not something the module has. It is the only freeze proven on
@@ -99,13 +140,14 @@ monitor, moving test card on HDMIInput1 in LayerA on program:
 
 Retracted: "screen freeze feedback broken upstream". Upstream has no screen freeze feedback at all.
 
-| #        | Claim (from reading `9f84de7`)                                                                                                                      | Code                                      | Proof on hardware                                                                                                                                    |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1        | Aux test pattern presets do nothing: presets set `screenDestination`, the `testpattern_on_AUX` action reads `auxDestination`, so it sends `id: NaN` | `presets.js` ~634, `eventmaster.js` ~1458 | Run upstream preset action against the E2 (has an aux): capture the request, frame reply, and the aux test pattern unchanged. PDS-4K has no aux: N/A |
-| 2        | "Unsubscribe to start clean" is a no-op: `this.eventmaster.unsubscribe(callback)` (callback in the hostname slot, no port/types)                    | `eventmaster.js` ~248                     | Capture the request and frame reply. Then show a leftover subscription from a previous run still delivers (frame keeps notifying the old port)       |
-| 3        | Live updates can't restart: teardown never stops the notification server, so setup again (config change) hits address in use                        | `eventmaster.js` ~312, listener `start()` | Upstream module: enable live updates, change config (re-init), record outcome; does a notification still arrive afterwards?                          |
-| 4        | If the notification port is taken, the module process crashes (listener error unhandled)                                                            | listener / `startNotificationServer`      | Hold the port, enable live updates against a real frame, record whether the module process dies                                                      |
-| 5 (open) | Upstream subscribes with a numeric port; does the frame accept it?                                                                                  | listener line 40                          | Subscribe with number vs string, check `success` and whether notifications arrive. Only claim if it fails                                            |
+| #        | Claim (from reading `9f84de7`)                                                                                                                      | Code                                         | Proof on hardware                                                                                                                                    |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1        | Aux test pattern presets do nothing: presets set `screenDestination`, the `testpattern_on_AUX` action reads `auxDestination`, so it sends `id: NaN` | `presets.js` ~634, `eventmaster.js` ~1458    | Run upstream preset action against the E2 (has an aux): capture the request, frame reply, and the aux test pattern unchanged. PDS-4K has no aux: N/A |
+| 2        | "Unsubscribe to start clean" is a no-op: `this.eventmaster.unsubscribe(callback)` (callback in the hostname slot, no port/types)                    | `eventmaster.js` ~248                        | Capture the request and frame reply. Then show a leftover subscription from a previous run still delivers (frame keeps notifying the old port)       |
+| 3        | Live updates can't restart: teardown never stops the notification server, so setup again (config change) hits address in use                        | `eventmaster.js` ~312, listener `start()`    | Upstream module: enable live updates, change config (re-init), record outcome; does a notification still arrive afterwards?                          |
+| 4        | If the notification port is taken, the module process crashes (listener error unhandled)                                                            | listener / `startNotificationServer`         | Hold the port, enable live updates against a real frame, record whether the module process dies                                                      |
+| 5 (open) | Upstream subscribes with a numeric port; does the frame accept it?                                                                                  | listener line 40                             | Subscribe with number vs string, check `success` and whether notifications arrive. Only claim if it fails                                            |
+| 6        | On a PDS-4K upstream's "Freeze/Unfreeze Source" (`frz_Source`) and "Freeze/Unfreeze Destination" (`freeze_dest`) don't freeze the picture           | `eventmaster.js` `frz_Source`, `freeze_dest` | Run upstream's two actions against the PDS-4K, Matt on the monitor with a moving source; control: a layer freeze does freeze. Justifies hiding them  |
 
 The behaviour each proof rests on (the reply is only supporting):
 
@@ -116,6 +158,9 @@ The behaviour each proof rests on (the reply is only supporting):
 - 3: after re-init, notifications no longer arrive at the module (and the error it hits).
 - 4: the module process exits.
 - 5: notifications arrive (or don't) with a numeric port versus a string port.
+- 6: the PDS-4K output stays live through each upstream freeze action (Matt watching), while the
+  read-back flips; the layer freeze control freezes it. Already seen with direct JSON-RPC calls
+  (2026-10-16 11:24); still to repeat through upstream's own code.
 
 ## Hardware session plan (E2 + PDS-4K on one network)
 
@@ -176,9 +221,32 @@ The behaviour each proof rests on (the reply is only supporting):
     sync). Claude unarmed both screens over JSON-RPC (read-back `IsActive` 0); input 1 had signal by
     09:58
 - [x] PDS-4K freezes rechecked on the monitor (11:24): only layer freeze works
-- [ ] **Next:** the E2 on a monitor: input, layer (`changeContent`), output and aux freeze, each held
-      20 s
-- [ ] Decide what PR 1 claims per model from the monitor results
+- [x] E2 on a monitor: input, layer, output, aux and background freeze all work (11:30 to 11:38)
+- [x] Layer freeze built (fork `4.4.6-ee.22`): see PR 1. `test/layer.test.js` covers grouping,
+      program/preview resolution through a transition, single layers, a layer not on program, new
+      layers rebuilding dropdowns, and PDS-4K hiding. module-check now runs a layer freeze round trip
+      through the Companion action: both frames all checks OK (2026-10-16 12:09 local;
+      `module-check_E2_9.2.6373_2026-10-16-11-09-17.txt`, `module-check_PDS-4K_9.2.5963_2026-10-16-11-09-24.txt`,
+      UTC in the names)
+- [x] Layer rule changed to "bus picks what's on it" and upstream's freeze actions hidden on a PDS-4K
+      (fork `4.4.6-ee.23`; `-ee.22` superseded, never tested in Companion). Tests add the split
+      PDS-4K cases. A two-layer `changeContent` (E2 Layer2 + Layer3, 12:36) set and cleared both by
+      read-back; **not yet seen on an output**: watch a split PDS-4K layer with both halves on
+      program freeze together. module-check 12:37 both frames all checks OK; the PDS-4K had nothing
+      on program, so its layer step was skipped
+- [x] Layers on both buses count for both (fork `4.4.6-ee.24`; `-ee.23` superseded, never tested in
+      Companion). module-check 12:56 both frames all checks OK; PDS-4K PGM1 was split with B on both
+      buses, and the layer round trip froze and released B
+- [x] Matt checked `4.4.6-ee.24` in Companion (13:00 to 13:20): **PDS-4K yes** (no source/screen
+      freeze offered; split PGM1 frozen from the program button lights both feedbacks; both halves on
+      program freeze together, so the two-layer `changeContent` is now seen on an output). **E2
+      mixing layers good.** E2 single layer: a hand-made preview button kept lighting after Layer3
+      was cleared from preview; cause was its feedback's own bus option still on Program (action and
+      feedback each have one). Frame read-backs were right throughout (13:16 `Pgm 1 Pvw 0`), and
+      clearing/taking layers sends `ScreenDestChanged` (87 in 2 min, in bursts of about 30)
+- [x] Preview presets added (fork `4.4.6-ee.25`): a program and a preview button per layer, action and
+      feedback bus set together; button text ends `L<n> PGM` / `L<n> PVW`
+- [ ] **Next:** Matt checks the `-ee.25` preview presets on the E2 single layer; then commit
 - [ ] Upstream proof harness written (not started; loads `9f84de7` via a git worktree sharing
       `node_modules`; rehearse on mock for correctness only)
 - [ ] Hardware session: module-check on both frames; upstream proofs 1 to 5
