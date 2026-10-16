@@ -112,6 +112,8 @@ const server = http.createServer((req, res) => {
 			}
 		else if (method === 'subscribe') {
 			success = frame.subscribeSuccess
+			// A refusing frame says why, as the PDS-4K does for a type it doesn't support
+			if (success !== 0) response = 'NativeRateChanged is not applicable for PDS.'
 			frame.subs.push(params)
 		} else if (method === 'unsubscribe') {
 			frame.subs = frame.subs.filter((s) => !(s.hostname === params.hostname && s.port === params.port))
@@ -566,6 +568,10 @@ server.listen(9999, '127.0.0.1', async () => {
 	const c = mk({ enable_notifications: true, notification_port: 3102, notification_host: '127.0.0.1' })
 	await c.setupNotifications()
 	check('subscribe rejection reported', await until(() => /Subscribe failed/.test(c.vars.live_updates_status || '')))
+	check(
+		"subscribe rejection carries the frame's reason",
+		/not applicable for PDS/.test(c.vars.live_updates_status || ''),
+	)
 	check(
 		'subscribe rejection logged as error',
 		c.logs.some(([l, m]) => l === 'error' && m.includes('subscribe failed')),

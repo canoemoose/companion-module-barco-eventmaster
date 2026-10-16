@@ -55,9 +55,11 @@ class NotificationListener {
 		this.em.subscribe(this.listenerHost, String(this.port), this.events, (err, res) => {
 			if (!this.onSubscribed) return
 			if (err) this.onSubscribed(false, err?.message || String(err))
-			else if (res && res.success !== undefined && res.success !== 0)
-				this.onSubscribed(false, `frame returned success=${res.success}`)
-			else this.onSubscribed(true, res)
+			else if (res && res.success !== undefined && res.success !== 0) {
+				// The frame says why in `response`, e.g. a type the model doesn't support
+				const why = typeof res.response === 'string' && res.response ? `: ${res.response}` : ''
+				this.onSubscribed(false, `frame returned success=${res.success}${why}`)
+			} else this.onSubscribed(true, res)
 		})
 	}
 
