@@ -303,8 +303,7 @@ server.listen(9999, '127.0.0.1', async () => {
 		'screen test pattern preset lights for its own pattern',
 		tps.feedbacks[0].feedbackId === 'test_pattern_active' &&
 			tps.feedbacks[0].options.dest === 'screen:0' &&
-			tps.feedbacks[0].options.pattern === '3' &&
-			!tps.feedbacks[0].isInverted,
+			tps.feedbacks[0].options.pattern === '3',
 	)
 	const tpa = inst.presets.test_pattern_100_bars_0
 	check(
@@ -313,9 +312,14 @@ server.listen(9999, '127.0.0.1', async () => {
 	)
 	const off = inst.presets.test_pattern_Off_0
 	check(
-		'Off preset lights while no pattern is on (inverted any)',
-		off.feedbacks[0].options.pattern === 'any' && off.feedbacks[0].isInverted === true,
+		'Off preset has no feedback (its transparent icon would turn the whole button yellow)',
+		off.feedbacks.length === 0,
 	)
+	check(
+		'pattern presets keep their icon; the feedback sets the background only, no text',
+		[tps, tpa].every((p) => JSON.stringify(Object.keys(p.feedbacks[0].style)) === '["bgcolor"]' && !!p.style.png64),
+	)
+	check('no advanced frame feedback (Companion lists image buffers as deprecated)', !inst.feedbacks.test_pattern_frame)
 	check('Arm preset lights while armed', inst.presets.screen_0_arm.feedbacks[0].feedbackId === 'screen_armed')
 	const at = inst.presets.screen_0_arm_toggle
 	check(

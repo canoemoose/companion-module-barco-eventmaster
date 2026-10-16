@@ -3,7 +3,7 @@
 	"legacy": [
 		"eventmaster"
 	],
-	"version": "4.4.6-ee.25",
+	"version": "4.4.6-ee.28",
 	"main": "eventmaster.js",
 	"scripts": {
 		"test": "node test/freeze.test.js && node test/layer.test.js && node test/live.test.js && node test/kit.test.js",

@@ -1664,14 +1664,19 @@ module.exports = function getPresets(eventmasterData, _log, freeze = {}) {
 			action.options.auxDestination = action.options.screenDestination
 		const destId = isAux ? action.options.auxDestination : action.options.screenDestination
 		const pattern = String(action.options.testPattern)
-		preset.feedbacks = [
-			{
-				feedbackId: 'test_pattern_active',
-				options: { dest: `${isAux ? 'aux' : 'screen'}:${destId}`, pattern: pattern === '0' ? 'any' : pattern },
-				isInverted: pattern === '0',
-				style: { text: 'ON', size: '18', color: combineRgb(255, 200, 0), alignment: 'center:bottom' },
-			},
-		]
+		// Background only: the 72x58 pattern icon leaves the button's background showing round it, so
+		// the colour frames the active pattern without covering the icon. Not on Off: its icon is
+		// transparent, so the whole button would change colour
+		preset.feedbacks =
+			pattern === '0'
+				? []
+				: [
+						{
+							feedbackId: 'test_pattern_active',
+							options: { dest: `${isAux ? 'aux' : 'screen'}:${destId}`, pattern },
+							style: { bgcolor: combineRgb(255, 200, 0) },
+						},
+					]
 	}
 
 	return presets
