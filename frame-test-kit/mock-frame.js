@@ -111,8 +111,9 @@ function initialState(blank) {
 					{ id: 1, LastBGSourceIndex: -1 },
 				],
 				Layers: [
-					{ id: 0, LastSrcIdx: 0, PgmMode: 1, PvwMode: 1, Freeze: 0 },
-					{ id: 1, LastSrcIdx: 1, PgmMode: 1, PvwMode: 1, Freeze: 0 },
+					// Two single layers (each its own Z order; single layers on program read Pgm 1 and Pvw 1)
+					{ id: 0, LastSrcIdx: 0, PgmMode: 1, PvwMode: 1, PgmZOrder: 0, PvwZOrder: 0, Freeze: 0 },
+					{ id: 1, LastSrcIdx: 1, PgmMode: 1, PvwMode: 1, PgmZOrder: 2, PvwZOrder: 2, Freeze: 0 },
 				],
 			},
 		},
@@ -291,7 +292,15 @@ function createMock(opts = {}) {
 			case 'changeContent':
 				if (params.TestPattern !== undefined)
 					pushNotification('OutputCfgChanged', setTp(s.content[params.id], params.TestPattern))
-				return null
+				// Layer freeze: the E2 (9.2.6373) answers with ScreenDestChanged for the screen
+				if ((params.Layers || []).some((l) => l.Freeze !== undefined) && s.content[params.id]) {
+					for (const l of params.Layers) {
+						const layer = s.content[params.id].Layers.find((x) => x.id === l.id)
+						if (layer && l.Freeze !== undefined) layer.Freeze = l.Freeze
+					}
+					pushNotification('ScreenDestChanged', [params.id])
+				}
+				return {}
 			case 'changeAuxContent':
 				if (params.TestPattern !== undefined)
 					pushNotification('OutputCfgChanged', setTp(s.auxContent[params.id], params.TestPattern))

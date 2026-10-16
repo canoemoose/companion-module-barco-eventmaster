@@ -258,6 +258,18 @@ const keysOf = (o) => (o && typeof o === 'object' ? Object.keys(o).join(', ') : 
 			`aux ${a.id} "${a.Name}"`,
 			`frozen ${inst.vars[`aux_${a.id}_frozen`]}, test pattern ${inst.vars[`aux_${a.id}_test_pattern`]}`,
 		)
+	note('input/output freeze offered', inst.hasInputOutputFreeze() ? 'yes' : 'no (PDS-4K: layer freeze only)')
+	for (const g of inst.allLayerGroups().slice(0, 8)) {
+		const on = (bus) =>
+			inst
+				.layersOnBus(g, bus)
+				.map((l) => l.id)
+				.join('+') || '-'
+		note(
+			`layer ${inst.layerGroupLabel(g)}`,
+			`physical ${g.layers.map((l) => `${l.id} ${l.Name}`).join(' + ')}; on pgm ${on('pgm')}, on pvw ${on('pvw')}`,
+		)
+	}
 
 	// Live updates
 	await inst.setupNotifications()
@@ -298,8 +310,10 @@ const keysOf = (o) => (o && typeof o === 'object' ? Object.keys(o).join(', ') : 
 		// so use an input that has signal
 		const s0 = live.find((s) => s.InputCfgVideoStatus === 1)
 		const neutral = (v) => v === 'No' || v === 'Off'
+		const io = inst.hasInputOutputFreeze()
 		try {
-			if (s0 && neutral(inst.vars[`source_${s0.id + 1}_frozen`])) {
+			if (!io) note('source and screen freeze', 'skipped: not offered on this frame (PDS-4K)')
+			else if (s0 && neutral(inst.vars[`source_${s0.id + 1}_frozen`])) {
 				touched.push(['freezeDestSource', { type: 0, id: s0.id, screengroup: 0, mode: 0 }])
 				await step(
 					`freeze source "${s0.Name}" (from another client)`,
@@ -321,7 +335,9 @@ const keysOf = (o) => (o && typeof o === 'object' ? Object.keys(o).join(', ') : 
 						: 'skipped: no input has signal (the frame does not freeze an input without signal)',
 				)
 			const sc = screens[0]
-			if (sc && neutral(inst.vars[`screen_${sc.id}_frozen`])) {
+			if (!io) {
+				// noted above
+			} else if (sc && neutral(inst.vars[`screen_${sc.id}_frozen`])) {
 				touched.push(['freezeDestSource', { type: 2, id: sc.id, screengroup: 0, mode: 0 }])
 				await step(
 					`freeze screen "${sc.Name}" (from another client)`,
@@ -336,6 +352,27 @@ const keysOf = (o) => (o && typeof o === 'object' ? Object.keys(o).join(', ') : 
 					'No',
 				)
 			} else note('screen freeze', 'skipped (no screen, or it is already frozen)')
+			// Layer freeze through the Companion action: the first layer on program that isn't frozen
+			const onPgm = (g) => inst.layersOnBus(g, 'pgm')
+			const lg = inst.allLayerGroups().find((g) => onPgm(g).length && onPgm(g).every((l) => (l.Freeze ?? 0) === 0))
+			if (lg) {
+				const ids = onPgm(lg).map((l) => l.id)
+				const v = `screen_${lg.screen.id}_layer_${lg.number}_pgm_frozen`
+				const opts = { layer: lg.key, bus: 'pgm', mode: 'toggle' }
+				touched.push(['changeContent', { id: lg.screen.id, Layers: ids.map((id) => ({ id, Freeze: 0 })) }])
+				await step(
+					`freeze ${inst.layerGroupLabel(lg)} on program (Companion action, layer ${ids.join('+')})`,
+					() => inst.actions.frz_layer_toggle.callback({ options: opts }),
+					v,
+					'Yes',
+				)
+				await step(
+					'layer freeze toggle again',
+					() => inst.actions.frz_layer_toggle.callback({ options: opts }),
+					v,
+					'No',
+				)
+			} else note('layer freeze', 'skipped (no layer on program, or all frozen)')
 			if (sc && inst.vars[`screen_${sc.id}_armed`] === 'No') {
 				touched.push(['armUnarmDestination', { arm: 0, ScreenDestination: [{ id: sc.id }], AuxDestination: [] }])
 				await step(

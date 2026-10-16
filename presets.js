@@ -4,9 +4,13 @@ const _ = require('lodash')
 
 /**
  * Get all the presets
+ * @param {object} [freeze] freeze options from the module
+ * @param {boolean} [freeze.inputOutput] input and screen freeze work on this frame (false on a PDS-4K)
+ * @param {{key: string, screenId: number, screenName: string, number: number, single: boolean}[]} [freeze.layers] layers to offer
  * @returns presets
  */
-module.exports = function getPresets(eventmasterData, _log) {
+module.exports = function getPresets(eventmasterData, _log, freeze = {}) {
+	const inputOutputFreeze = freeze.inputOutput !== false
 	const presets = {} // main array
 
 	presets['Take'] = {
@@ -1510,8 +1514,8 @@ module.exports = function getPresets(eventmasterData, _log) {
 		})
 	}
 
-	// Freeze toggles with frame-reported feedback
-	Object.values(eventmasterData.sources || {}).forEach((source) => {
+	// Freeze toggles with frame-reported feedback (not on a PDS-4K, where only layer freeze works)
+	Object.values(inputOutputFreeze ? eventmasterData.sources || {} : {}).forEach((source) => {
 		// Live inputs only: skip stills, and destinations/user keys re-entered as sources
 		if (!source || source.Name === 'no sources loaded yet') return
 		if (!(source.InputCfgIndex >= 0) || source.DestIndex >= 0 || source.UserKeyIndex >= 0) return
@@ -1545,7 +1549,7 @@ module.exports = function getPresets(eventmasterData, _log) {
 		}
 	})
 
-	Object.values(eventmasterData.ScreenDestinations || {}).forEach((screen) => {
+	Object.values(inputOutputFreeze ? eventmasterData.ScreenDestinations || {} : {}).forEach((screen) => {
 		if (!screen || screen.Name === 'no destinations loaded yet') return
 		presets[`freeze_screen_${screen.id}`] = {
 			type: 'button',
@@ -1608,6 +1612,46 @@ module.exports = function getPresets(eventmasterData, _log) {
 			],
 		}
 	})
+
+	// Layer freeze: a program and a preview toggle per layer per screen. The action and the feedback
+	// each have their own bus option, so the presets set both to the same bus
+	for (const layer of freeze.layers || []) {
+		for (const [bus, busLabel, busName] of [
+			['pgm', 'PGM', 'program'],
+			['pvw', 'PVW', 'preview'],
+		]) {
+			const name = `$(eventmaster:screen_${layer.screenId}_label)\\nL${layer.number} ${busLabel}`
+			const id = layer.key.replace(':', '_')
+			presets[bus === 'pgm' ? `freeze_layer_${id}` : `freeze_layer_pvw_${id}`] = {
+				type: 'button',
+				category: 'Freeze Layers',
+				name: `Freeze ${layer.screenName ?? `screen ${layer.screenId}`} layer ${layer.number}${layer.single ? ' (single)' : ''} on ${busName}`,
+				style: {
+					text: `Freeze\\n${name}`,
+					size: 'auto',
+					color: combineRgb(255, 255, 255),
+					bgcolor: combineRgb(40, 40, 40),
+				},
+				steps: [
+					{
+						down: [{ actionId: 'frz_layer_toggle', options: { layer: layer.key, bus, mode: 'toggle' } }],
+						up: [],
+					},
+				],
+				feedbacks: [
+					{
+						feedbackId: 'layer_frozen',
+						options: { layer: layer.key, bus },
+						style: {
+							text: `FROZEN\\n${name}`,
+							bgcolor: combineRgb(0, 100, 255),
+							color: combineRgb(255, 255, 255),
+						},
+					},
+				],
+			}
+		}
+	}
 
 	// Test pattern presets light up from the frame's reported test pattern: a pattern button while
 	// that pattern is on its destination, the Off button while no pattern is on.

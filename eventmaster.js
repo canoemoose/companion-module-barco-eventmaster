@@ -269,7 +269,18 @@ class BarcoInstance extends InstanceBase {
 			this.log('error', `Failed to build feedbacks: ${err?.message || err}`)
 		}
 		try {
-			this.setPresetDefinitions(getPresets(this.eventmasterData))
+			this.setPresetDefinitions(
+				getPresets(this.eventmasterData, undefined, {
+					inputOutput: this.hasInputOutputFreeze(),
+					layers: this.allLayerGroups().map((g) => ({
+						key: g.key,
+						screenId: g.screen.id,
+						screenName: g.screen.Name,
+						number: g.number,
+						single: g.single,
+					})),
+				}),
+			)
 		} catch (err) {
 			this.log('error', `Failed to build presets: ${err?.message || err}`)
 		}
@@ -674,6 +685,9 @@ class BarcoInstance extends InstanceBase {
 					this.eventmasterData.frameMAC = frameMAC
 					this.eventmasterData.version = version
 					this.eventmasterData.OSVersion = osVersion
+					// FrameType: 0 E2, 1 S3, 2 Ex, 3 IP-4K, 5 E2 Gen2, 6 PDS-4K, 8 Encore3 (Barco R5919184/02)
+					this.eventmasterData.frameType = frameData.FrameType
+					this.eventmasterData.frameTypeName = frameData.FrameTypeName
 
 					// Start with basic variables
 					const variableValues = {
@@ -1146,7 +1160,12 @@ class BarcoInstance extends InstanceBase {
 	/**
 	 * Update variable definitions to include source monitoring variables
 	 */
-	updateDestinationVariables() {
+	/**
+	 * @param {boolean} [populate] also re-read destinations and repopulate values (default). False
+	 *   when only the definitions changed, e.g. after a content read found a new layer layout.
+	 */
+	updateDestinationVariables(populate = true) {
+		const io = this.hasInputOutputFreeze()
 		// Start with frame variables (if available) or default variables
 		const variables =
 			this.frameVariableDefinitions.length > 0
@@ -1179,10 +1198,11 @@ class BarcoInstance extends InstanceBase {
 					variableId: `source_${source.id + 1}_is_active`,
 					name: `${source.Name} - Is Active (PGM or PVW)`,
 				})
-				variables.push({
-					variableId: `source_${source.id + 1}_frozen`,
-					name: `${source.Name} - Frozen (Yes/No)`,
-				})
+				if (io)
+					variables.push({
+						variableId: `source_${source.id + 1}_frozen`,
+						name: `${source.Name} - Frozen (Yes/No)`,
+					})
 				variables.push({
 					variableId: `source_${source.id + 1}_label`,
 					name: `${source.Name} - Button label (appended -N removed)`,
@@ -1216,10 +1236,11 @@ class BarcoInstance extends InstanceBase {
 					variableId: `screen_${screen.id}_name`,
 					name: `Screen ${screen.id} Name`,
 				})
-				variables.push({
-					variableId: `screen_${screen.id}_frozen`,
-					name: `Screen ${screen.id} Frozen (Yes/Partial/No)`,
-				})
+				if (io)
+					variables.push({
+						variableId: `screen_${screen.id}_frozen`,
+						name: `Screen ${screen.id} Frozen (Yes/Partial/No)`,
+					})
 				variables.push({
 					variableId: `screen_${screen.id}_label`,
 					name: `Screen ${screen.id} Button label`,
@@ -1257,6 +1278,15 @@ class BarcoInstance extends InstanceBase {
 			})
 		}
 
+		for (const g of this.allLayerGroups()) {
+			const base = `screen_${g.screen.id}_layer_${g.number}`
+			const label = this.layerGroupLabel(g)
+			variables.push(
+				{ variableId: `${base}_pgm_frozen`, name: `${label} Frozen on program (Yes/No)` },
+				{ variableId: `${base}_pvw_frozen`, name: `${label} Frozen on preview (Yes/No)` },
+			)
+		}
+
 		variables.push(
 			{ variableId: 'live_updates_status', name: 'Live updates status' },
 			{ variableId: 'live_updates_last', name: 'Last live update received' },
@@ -1275,6 +1305,7 @@ class BarcoInstance extends InstanceBase {
 			if (this._statusVariables) this.setVariableValues(this._statusVariables)
 		}
 
+		if (!populate) return
 		// Auto-populate source monitoring variables.
 		// Fire-and-forget, but guard the rejection so it can never become an
 		// unhandled promise rejection that crashes the module.
@@ -1359,6 +1390,83 @@ class BarcoInstance extends InstanceBase {
 	isAuxFrozen(id) {
 		const aux = this.findAuxById(id)
 		return ((aux?.FrzMode !== undefined ? aux.FrzMode : aux?.Freeze) ?? 0) > 0
+	}
+
+	/**
+	 * On the PDS-4K (9.2.5963) input and output freeze set the read-back but leave the picture live:
+	 * only layer freeze works there. So source and screen freeze controls are hidden on it.
+	 */
+	isPdsFrame() {
+		const d = this.eventmasterData || {}
+		return d.frameType === 6 || /PDS/i.test(d.frameTypeName || '')
+	}
+
+	hasInputOutputFreeze() {
+		return !this.isPdsFrame()
+	}
+
+	/**
+	 * A screen's layers as the operator sees them. A mixing layer is an A/B pair of physical layers
+	 * (one on program, one on preview, swapping on a transition); a single layer is one physical layer.
+	 * The two halves of a pair share a Z order and a single layer's is unique, so group by Z order:
+	 * names differ by model (E2 "Layer1-A", PDS-4K "LayerA"). Numbered from the bottom, from 1.
+	 * @returns {{key: string, number: number, single: boolean, layers: object[]}[]}
+	 */
+	screenLayerGroups(screenId) {
+		const layers = [].concat(this._screenContent?.[screenId]?.Layers ?? []).filter((l) => l && l.id !== undefined)
+		const byZ = new Map()
+		for (const layer of layers) {
+			const z = layer.PgmZOrder ?? layer.PvwZOrder ?? layer.id
+			if (!byZ.has(z)) byZ.set(z, [])
+			byZ.get(z).push(layer)
+		}
+		return [...byZ.entries()]
+			.sort((a, b) => a[0] - b[0])
+			.map(([, group], i) => {
+				group.sort((a, b) => a.id - b.id)
+				return { key: `${screenId}:${group[0].id}`, number: i + 1, single: group.length === 1, layers: group }
+			})
+	}
+
+	allLayerGroups() {
+		return Object.values(this.eventmasterData?.ScreenDestinations || {})
+			.sort((a, b) => a.id - b.id)
+			.flatMap((screen) => this.screenLayerGroups(screen.id).map((g) => ({ ...g, screen })))
+	}
+
+	findLayerGroup(key) {
+		const screenId = Number(String(key).split(':')[0])
+		const group = this.screenLayerGroups(screenId).find((g) => g.key === String(key))
+		return group && { ...group, screenId, screen: this.findScreenById(screenId) }
+	}
+
+	layerGroupLabel(group) {
+		const screen = group.screen?.Name ?? `Screen ${group.key.split(':')[0]}`
+		return `${screen} Layer ${group.number}${group.single ? ' (single)' : ''}`
+	}
+
+	/**
+	 * The physical layers of a layer that are on a bus now (PgmMode / PvwMode 1). For a pair that is
+	 * one half. A single layer (E2) or a split PDS-4K half on program reads both: it is one layer shown
+	 * on both buses, and freezing it freezes it everywhere, so it counts for both. A split PDS-4K layer
+	 * can have both halves on one bus, and JSON-RPC doesn't say whether a PDS-4K layer is split, so act
+	 * on whatever is there. Freeze belongs to the physical layer and moves with it through a
+	 * transition, so resolving at press time is right.
+	 * @param {'pgm'|'pvw'} bus
+	 */
+	layersOnBus(group, bus) {
+		if (!group) return []
+		return group.layers.filter((l) => (bus === 'pvw' ? l.PvwMode : l.PgmMode) > 0)
+	}
+
+	// Frozen when any of the layer's physical layers on that bus is frozen
+	isLayerFrozen(key, bus = 'pgm') {
+		return this.layersOnBus(this.findLayerGroup(key), bus).some((l) => (l.Freeze ?? 0) > 0)
+	}
+
+	// Signature of every screen's layer grouping: a change means the layer dropdowns and presets are stale
+	layerStructure() {
+		return JSON.stringify(this.allLayerGroups().map((g) => [g.key, g.number, g.single]))
 	}
 
 	/**
@@ -1450,11 +1558,24 @@ class BarcoInstance extends InstanceBase {
 		}
 	}
 
+	// Layer frozen variables, one per bus for every layer
+	layerFrozenVariables() {
+		const values = {}
+		const yn = (layers) => (layers.some((l) => (l.Freeze ?? 0) > 0) ? 'Yes' : 'No')
+		for (const g of this.allLayerGroups()) {
+			const base = `screen_${g.screen.id}_layer_${g.number}`
+			values[`${base}_pgm_frozen`] = yn(this.layersOnBus(g, 'pgm'))
+			values[`${base}_pvw_frozen`] = yn(this.layersOnBus(g, 'pvw'))
+		}
+		return values
+	}
+
 	updateFreezeVariablesAndFeedbacks() {
 		const changed = {}
+		const io = this.hasInputOutputFreeze()
 		for (const source of Object.values(this.eventmasterData?.sources || {})) {
 			const values = {
-				[`source_${source.id + 1}_frozen`]: this.isSourceFrozen(source.id) ? 'Yes' : 'No',
+				...(io ? { [`source_${source.id + 1}_frozen`]: this.isSourceFrozen(source.id) ? 'Yes' : 'No' } : {}),
 				[`source_${source.id + 1}_label`]: this.buttonLabel(source.Name),
 			}
 			for (const [key, value] of Object.entries(values)) {
@@ -1466,11 +1587,15 @@ class BarcoInstance extends InstanceBase {
 		}
 		for (const screen of Object.values(this.eventmasterData?.ScreenDestinations || {})) {
 			const values = {
-				[`screen_${screen.id}_frozen`]: this.isScreenFrozen(screen.id, 'all')
-					? 'Yes'
-					: this.isScreenFrozen(screen.id, 'any')
-						? 'Partial'
-						: 'No',
+				...(io
+					? {
+							[`screen_${screen.id}_frozen`]: this.isScreenFrozen(screen.id, 'all')
+								? 'Yes'
+								: this.isScreenFrozen(screen.id, 'any')
+									? 'Partial'
+									: 'No',
+						}
+					: {}),
 				[`screen_${screen.id}_label`]: this.buttonLabel(screen.Name),
 			}
 			for (const [key, value] of Object.entries(values)) {
@@ -1492,8 +1617,34 @@ class BarcoInstance extends InstanceBase {
 				}
 			}
 		}
+		for (const [key, value] of Object.entries(this.layerFrozenVariables())) {
+			if (this.previousVariableValues[key] !== value) {
+				changed[key] = value
+				this.previousVariableValues[key] = value
+			}
+		}
 		if (Object.keys(changed).length > 0) this.setVariableValues(changed)
-		this.checkFeedbacks('source_frozen', 'screen_frozen', 'aux_frozen')
+		this.checkFeedbacks('source_frozen', 'screen_frozen', 'aux_frozen', 'layer_frozen')
+	}
+
+	/**
+	 * Freeze or unfreeze physical layers of one screen in one changeContent (Layers[].Freeze), updating
+	 * the cache optimistically, then re-read that screen. The frame answers with a ScreenDestChanged too.
+	 * @param {number[]} layerIds
+	 */
+	sendLayerFreeze(screenId, layerIds, mode) {
+		const params = { id: screenId, Layers: layerIds.map((id) => ({ id, Freeze: mode })) }
+		this.eventmaster.changeContent(params, (err, res) => {
+			if (err) {
+				this.log('error', 'EventMaster layer freeze error: ' + err)
+			} else {
+				this.log('debug', `layer freeze screen ${screenId} layers ${layerIds} mode ${mode}: ${JSON.stringify(res)}`)
+				for (const layer of [].concat(this._screenContent?.[screenId]?.Layers ?? []))
+					if (layerIds.includes(layer?.id)) layer.Freeze = mode
+				this.updateFreezeVariablesAndFeedbacks()
+			}
+			this.refreshDestinationContent([screenId], [])
+		})
 	}
 
 	/**
@@ -1594,6 +1745,15 @@ class BarcoInstance extends InstanceBase {
 		// Read content for the requested destinations (all by default) into the cache, then work out
 		// tally from the cache for every destination, so a targeted read keeps the others' tally
 		await this.fetchDestinationContent(only)
+
+		// Layers live in the content, which is read after the definitions are built (and a layer can
+		// be added or removed without a structural notification): rebuild them when the layout changes
+		const layers = this.layerStructure()
+		if (layers !== this._layerStructure) {
+			this._layerStructure = layers
+			this.updateDestinationVariables(false)
+			this.refreshDefinitions()
+		}
 
 		for (const dest of Object.values(this.eventmasterData.ScreenDestinations || {})) {
 			const content = this._screenContent?.[dest.id]
@@ -3028,6 +3188,76 @@ class BarcoInstance extends InstanceBase {
 			},
 		}
 
+		// On the PDS-4K input and output freeze don't freeze the picture: offer layer freeze only
+		if (!this.hasInputOutputFreeze()) {
+			delete actions.frz_Source
+			delete actions.freeze_dest
+			delete actions.frz_source_toggle
+			delete actions.frz_screen_toggle
+		}
+
+		// Freeze Layer with toggle (changeContent Layers[].Freeze)
+		const CHOICES_LAYERS = this.allLayerGroups().map((g) => ({ id: g.key, label: this.layerGroupLabel(g) }))
+		actions['frz_layer_toggle'] = {
+			name: 'Freeze Layer (Toggle)',
+			description:
+				'Freezes one layer of a screen; the same source in other layers stays live. Freezes whatever of the layer is on the bus you pick when pressed, and it stays frozen through a transition.',
+			options: [
+				{
+					type: 'dropdown',
+					label: 'Layer',
+					id: 'layer',
+					minChoicesForSearch: 8,
+					choices: CHOICES_LAYERS,
+					default: CHOICES_LAYERS.length > 0 ? CHOICES_LAYERS[0].id : '',
+				},
+				{
+					type: 'dropdown',
+					label: 'Bus (mixing layers)',
+					id: 'bus',
+					choices: [
+						{ id: 'pgm', label: 'Program' },
+						{ id: 'pvw', label: 'Preview' },
+					],
+					default: 'pgm',
+				},
+				{
+					type: 'dropdown',
+					label: 'Mode',
+					id: 'mode',
+					choices: [
+						{ id: 'toggle', label: 'Toggle' },
+						{ id: '1', label: 'Freeze' },
+						{ id: '0', label: 'Unfreeze' },
+					],
+					default: 'toggle',
+				},
+			],
+			callback: (action) => {
+				const group = this.findLayerGroup(action.options.layer)
+				const bus = action.options.bus || 'pgm'
+				const layers = this.layersOnBus(group, bus)
+				if (!layers.length) {
+					const where = bus === 'pvw' ? 'preview' : 'program'
+					this.log(
+						'warn',
+						group
+							? `Freeze layer: ${this.layerGroupLabel(group)} has nothing on ${where}`
+							: `Freeze layer: layer ${action.options.layer} not found`,
+					)
+					return
+				}
+				// Toggle: unfreeze if any is frozen, else freeze them all
+				const frozen = layers.some((l) => (l.Freeze ?? 0) > 0)
+				const mode = action.options.mode === 'toggle' ? (frozen ? 0 : 1) : parseInt(action.options.mode)
+				this.sendLayerFreeze(
+					group.screenId,
+					layers.map((l) => l.id),
+					mode,
+				)
+			},
+		}
+
 		// List Source Main Backup
 		// actions['list_source_main_backup'] = {
 		// 	name: 'List Source Main Backup',
@@ -3575,6 +3805,43 @@ class BarcoInstance extends InstanceBase {
 				},
 			],
 			callback: (feedback) => this.isAuxFrozen(parseInt(feedback.options.auxId)),
+		}
+
+		if (!this.hasInputOutputFreeze()) {
+			delete feedbacks.source_frozen
+			delete feedbacks.screen_frozen
+		}
+
+		const freezeLayerChoices = this.allLayerGroups().map((g) => ({ id: g.key, label: this.layerGroupLabel(g) }))
+		feedbacks['layer_frozen'] = {
+			type: 'boolean',
+			name: 'Layer Frozen',
+			description: 'True when what of the layer is on the bus you pick is frozen',
+			defaultStyle: {
+				bgcolor: 0x0064ff,
+				color: 0xffffff,
+			},
+			options: [
+				{
+					type: 'dropdown',
+					label: 'Layer',
+					id: 'layer',
+					minChoicesForSearch: 8,
+					choices: freezeLayerChoices,
+					default: freezeLayerChoices.length > 0 ? freezeLayerChoices[0].id : '',
+				},
+				{
+					type: 'dropdown',
+					label: 'Bus (mixing layers)',
+					id: 'bus',
+					choices: [
+						{ id: 'pgm', label: 'Program' },
+						{ id: 'pvw', label: 'Preview' },
+					],
+					default: 'pgm',
+				},
+			],
+			callback: (feedback) => this.isLayerFrozen(feedback.options.layer, feedback.options.bus || 'pgm'),
 		}
 
 		feedbacks['screen_armed'] = {
