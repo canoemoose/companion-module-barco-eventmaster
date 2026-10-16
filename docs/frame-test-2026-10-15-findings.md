@@ -71,6 +71,9 @@ notify" on 9.2 was a gap in that test, not frame behaviour.
   Barco's 8.2 doc. So externally made screen freezes are never seen; Companion-made ones only show via
   the optimistic update. The test mock copied the same wrong shape.
 - Aux: `AuxDestination[].FrzMode` (no `Freeze` field).
+- Barco's current reference (R5919184/02, 2026-01-27, "Event Master Toolset 9.x commands") still
+  documents `DestOutMapColl` / `Freeze` and never mentions `FrzMode`, so the docs don't match 9.2.6318
+  hardware. Read both shapes. https://www.barco.com/manuals/R5919184/qdfkzg2ca1aj.html
 
 ## Q4: layer `Freeze` in listContent
 

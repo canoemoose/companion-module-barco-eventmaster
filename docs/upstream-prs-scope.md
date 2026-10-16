@@ -4,6 +4,20 @@ Source of truth for turning the fork's work into upstream PRs to `bitfocus/compa
 Upstream base: v4.4.5, commit `9f84de7`. Fork branch: `feature/freeze-toggle-feedback` (latest build
 `4.4.6-ee.21`; fork builds are `<upstream next patch>-ee.N`, so they sort above upstream 4.4.5 and below its next release. Older `4.5.0-freeze.N` builds sort higher: remove them from Companion). Background: `HANDOFF.md`, `docs/frame-test-2026-10-15-findings.md`.
 
+Barco's current protocol reference: **R5919184/02 (2026-01-27)**, "Remote control protocol, Event Master
+series", https://www.barco.com/manuals/R5919184/index.html, with separate 9.x and 10.x command chapters,
+per-command **Availability** by model, and `FrameType` codes (0 E2, 1 S3, 2 Ex, 3 IP-4K, 5 E2 Gen2,
+6 PDS-4K, 8 Encore3). Newer than the two docs in `docs/`. Copyright Barco: link it, don't copy it in.
+Points that bear on the PRs and proofs:
+
+- PDS-4K: `listContent`, `changeContent`, `freezeDestSource`, `armUnarmDestination`, `listSources`,
+  `listDestinations`, `powerStatus`, `subscribe` are available; the aux calls are not.
+- It still documents screen freeze as `DestOutMapColl` / `Freeze` (no `FrzMode`); the E2 on 9.2.6318
+  returns `DestOutMapCol` / `FrzMode`. Hardware wins; read both.
+- Its subscribe/unsubscribe example sends the port as a string (`"3000"`): supporting evidence for
+  claim 5 only, still to be proven on hardware.
+- It states all subscriptions are lost when the processor restarts.
+
 ## Rules (Matt, 2026-10-15)
 
 - **PRs are minimal and standalone.** Each one makes sense and works on its own against upstream.
