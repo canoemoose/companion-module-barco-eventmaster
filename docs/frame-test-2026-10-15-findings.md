@@ -75,6 +75,14 @@ notify" on 9.2 was a gap in that test, not frame behaviour.
   documents `DestOutMapColl` / `Freeze` and never mentions `FrzMode`, so the docs don't match 9.2.6318
   hardware. Read both shapes. https://www.barco.com/manuals/R5919184/qdfkzg2ca1aj.html
 
+### Freezing an input with no signal (2026-10-16, 9.2.6318)
+
+`freezeDestSource` type 0 on an input with no signal (`InputCfgVideoStatus` 4) replies `success: 0` and
+sends `InputCfgChanged`, but an independent `listSources` read-back shows `Freeze` stays 0 (checked at
+1 s and 3 s). With signal on the same input, the freeze takes effect. So the module correctly shows
+such an input as not frozen (a Companion toggle shows FROZEN briefly, then the confirming read puts it
+back). `module-check.js` now picks an input with signal for its freeze test.
+
 ## Q4: layer `Freeze` in listContent
 
 Source freeze did **not** change any layer's `Freeze` in `listContent`, so the tally code's

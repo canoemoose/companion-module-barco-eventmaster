@@ -294,7 +294,9 @@ const keysOf = (o) => (o && typeof o === 'object' ? Object.keys(o).join(', ') : 
 	}
 	if (CHANGES) {
 		say('\n== Changes (each put back as found) ==')
-		const s0 = live[0]
+		// The frame won't freeze an input with no signal (E2 9.2.6318 accepts and notifies, Freeze stays 0),
+		// so use an input that has signal
+		const s0 = live.find((s) => s.InputCfgVideoStatus === 1)
 		const neutral = (v) => v === 'No' || v === 'Off'
 		try {
 			if (s0 && neutral(inst.vars[`source_${s0.id + 1}_frozen`])) {
@@ -311,7 +313,13 @@ const keysOf = (o) => (o && typeof o === 'object' ? Object.keys(o).join(', ') : 
 					`source_${s0.id + 1}_frozen`,
 					'No',
 				)
-			} else note('source freeze', 'skipped (no live input, or it is already frozen)')
+			} else
+				note(
+					'source freeze',
+					s0
+						? 'skipped (already frozen)'
+						: 'skipped: no input has signal (the frame does not freeze an input without signal)',
+				)
 			const sc = screens[0]
 			if (sc && neutral(inst.vars[`screen_${sc.id}_frozen`])) {
 				touched.push(['freezeDestSource', { type: 2, id: sc.id, screengroup: 0, mode: 0 }])
