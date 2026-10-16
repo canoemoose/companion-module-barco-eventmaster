@@ -1,9 +1,8 @@
 # PR D: arm, signal and test pattern feedback
 
 Branch `feature/status-feedback` (worktree `../pr-d-status-feedback`), **on top of PR C**
-(`feature/live-updates-rework`). Commit `c98e035`. Open after PR C, or as a PR whose base is PR C's
-branch; its diff against master includes PR C until that merges. Title and body below are what goes on
-GitHub.
+(`feature/live-updates-rework`). Commit `c98e035`. Opened against master; its diff includes PR C until
+that merges. Title and body below are what went on GitHub.
 
 ---
 
@@ -13,8 +12,8 @@ GitHub.
 
 Generated with Claude Code; Claude writes better JavaScript than I do. Tested against actual hardware.
 
-Depends on #NNN (PR C: replace NNN with its number once open): state comes from its content cache and follows changes made elsewhere through its
-notifications.
+Depends on #142: state comes from its content cache and follows changes made elsewhere through its
+notifications. Only the last commit (`c98e035`) is new here; the first is #142's.
 
 #### **Feedbacks**
 

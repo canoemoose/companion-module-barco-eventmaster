@@ -304,7 +304,7 @@ firmware it was proven on; 5 dropped.
 - [x] Hardware session: module-check on both frames; upstream proofs 1 to 6 (see "Results"). Claims
       2, 3, 4 on both frames; 1 on the E2 (only it has an aux); 6 on the PDS-4K
 - [x] PR split confirmed (Matt): A to D, layer freeze inside B. Branches cut from upstream master
-      `9f84de7` (D from C), each in a worktree beside the repo, upstream tracking removed. Not pushed
+      `9f84de7` (D from C), each in a worktree beside the repo, upstream tracking removed
 - [x] **Hardware session over (2026-10-16, Matt): no more frame access.** Left as found: E2 Layer3
       frozen and AuxDest1X on test pattern 4 (both Matt's), nothing else frozen or on, every script
       unsubscribed. Not seen on the PR branches, for want of a live input: PR B E2 source freeze
@@ -323,7 +323,16 @@ firmware it was proven on; 5 dropped.
 - B adds `isFreezableSource`; D adds `isLiveInput` (same test, so neither depends on the other). Can be
   merged into one once both land
 - Fork carries PR A's commits (cherry-picked, same `upgrades.js` order)
-- [ ] **Next:** Matt reviews the PR D text; then Matt pushes the branches and opens the PRs (A first;
-      D after C, or based on C's branch). Results transcripts are gitignored: attach the ones each PR
-      cites if asked
+- [x] Fork `canoemoose/companion-module-barco-eventmaster` added as remote `fork`; the four PR
+      branches and `feature/freeze-toggle-feedback` pushed there, each tracking `fork/<branch>`
+      (2026-10-16). `origin` stays upstream
+- [x] PRs opened on upstream **as drafts** (2026-10-16), by canoemoose, text from `docs/prs/` with no
+      footer; commits keep their Co-Authored-By trailers (Matt's choice): A
+      [#140](https://github.com/bitfocus/companion-module-barco-eventmaster/pull/140), B
+      [#141](https://github.com/bitfocus/companion-module-barco-eventmaster/pull/141), C
+      [#142](https://github.com/bitfocus/companion-module-barco-eventmaster/pull/142), D
+      [#143](https://github.com/bitfocus/companion-module-barco-eventmaster/pull/143) (against master,
+      says it depends on #142 and only its last commit is new)
+- [ ] **Next:** Matt marks the drafts ready for review. Results transcripts are gitignored: attach the
+      ones each PR cites if asked
 - [ ] After merges: rebase the fork on upstream master, drop what landed
