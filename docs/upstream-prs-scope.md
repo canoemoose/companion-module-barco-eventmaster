@@ -97,7 +97,11 @@ The behaviour each proof rests on (the reply is only supporting):
 - [x] `module-check.js` ready (rehearsed on mocks only; E2-like and `mock-frame.js --pds`)
 - [x] Fork build `4.4.6-ee.21` packaged: listener auto-detect with hint, heartbeat, arm/signal/test
       pattern feedback, aux freeze
-- [ ] **Next:** after the E2 point release, `module-check.js --changes` on the E2, then the PDS-4K
+- [x] E2 baseline on 9.2.6318 before the point release (2026-10-16 09:32, input 1 with signal): all
+      checks OK. `frame-test-kit/results/module-check_E2_9.2.6318_2026-10-16-09-32-32.txt`
+- [ ] **Next:** after the E2 point release, `module-check.js --changes` on the E2 (E2 at 192.168.0.175,
+      laptop 192.168.0.100; use `--port 3006` if 3005 is busy) and compare with that baseline; then
+      the PDS-4K (IP: ask Matt)
 - [ ] Upstream proof harness written (not started; loads `9f84de7` via a git worktree sharing
       `node_modules`; rehearse on mock for correctness only)
 - [ ] Hardware session: module-check on both frames; upstream proofs 1 to 5
