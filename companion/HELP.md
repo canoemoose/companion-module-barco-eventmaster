@@ -11,32 +11,45 @@ The module will update presets and actions every 15 seconds by default (configur
 ### **Configuration Options**
 
 - **Target IP**: IP address of the EventMaster device
-- **Polling Interval**: How often to refresh everything while live updates are off (seconds, 0 to disable). While live updates work it is replaced by a light heartbeat (see below)
+- **Polling Interval**: How often to refresh data (in seconds, 0 to disable)
 - **Authentication Mode**: None, Operator ID, or Super User Password
 - **Auth Value**: Authentication credentials (when required)
-- **Enable Live Updates**: Let the frame notify Companion of changes (freeze, takes, names, presets)
-- **Notification Server Port**: Local port for receiving EventMaster notifications (default: 3000)
-- **Notification Server Host**: the address the frame sends notifications to. Leave it blank: the module picks this machine's address on the frame's network (using the real netmask, wired before Wi-Fi, VPN and virtual adapters last), and the connection settings show which address that is. Only fill it in if that's wrong, e.g. Companion behind NAT or in Docker, or the frame on a routed network. A typed address goes stale if the machine moves network. `live_updates_listener` shows the address in use and whether it was auto-detected or set
+- **Enable Live Updates**: Enable real-time EventMaster subscriptions for instant feedback
+- **Notification Port (this machine)**: Local port for receiving EventMaster notifications (default: 3000)
+- **Notification Server Host**: IP address the EventMaster should send notifications to (auto-detected from the interface on the EventMaster's subnet if left blank; the detected address is shown below)
 
 ---
 
 ### **Live Updates (EventMaster Subscriptions)**
 
-With live updates on, the frame notifies Companion when something changes, from anywhere (Companion, EM Toolset or the console), and the module re-reads only what changed. On firmware 9.2 this covers source, screen and aux freeze, takes and recalls (tally), screen arm, test patterns, input signal, renames and preset changes. Feedback follows within about half a second.
+When **Enable Live Updates** is enabled, the module subscribes to real-time notifications from the EventMaster device. This provides:
 
-While live updates are working, the full poll stops. Instead the module makes one small request every 15 seconds (a heartbeat, which also keeps the power supply variables current) and a full refresh every 5 minutes, for anything the frame doesn't notify (such as user keys). If live updates stop working (subscribe refused, listener error), the normal polling interval comes back. A polling interval of 0 turns the heartbeat and the 5-minute refresh off too.
+#### **Benefits**
 
-Without live updates, changes made outside Companion show at the next polling interval.
+- **Instant Tally Updates**: Source tally/feedback buttons update immediately when content changes
+- **Instant Freeze, Arm and Test Pattern Feedback**: Changes made from Companion, EM Toolset or the console show within ~500ms
+- **Real-time Variables**: Source monitoring variables update within ~500ms of changes
+- **Reduced Network Load**: Only affected sources/destinations are queried; while subscribed, the full poll is replaced by a 15 s heartbeat and a 5 min full refresh
 
-#### **Status variables**
+#### **How It Works**
 
-- `live_updates_status`: Off, Subscribed, Subscribe failed (with the frame's reason), or Error (e.g. port already in use)
-- `live_updates_last`: time and type of the last notification received
+1. The module starts a local notification server on the configured port
+2. It subscribes to EventMaster screen, AUX, input, output, source, preset, cue, still, frame and background change events
+3. When content changes, EventMaster sends notifications to your Companion system
+4. The module batches and processes notifications, updating only affected sources/destinations
+5. Tally feedback and variables update automatically without waiting for the next poll (See Sources Feedback)
+6. Subscriptions are lost when the EventMaster restarts; the heartbeat detects this and the module re-subscribes once the device answers again
+
+#### **Status Variables**
+
+- `live_updates_status`: Off, Subscribed, Subscribe failed (with the EventMaster's error), or Error (e.g. port in use)
+- `live_updates_last`: Time and type of the last notification received
+- `live_updates_listener`: Address and port the EventMaster sends notifications to (auto-detected or set)
 
 #### **Network Requirements**
 
-- The frame connects **to** Companion, so the notification port must accept inbound TCP from the frame's IP (Windows: check the network profile is Private and the port is allowed inbound)
-- Subscriptions are lost when the frame restarts. The heartbeat notices the frame going away (logged once) and coming back, then re-subscribes and refreshes straight away, so live updates resume within about 15 seconds of the frame answering again. The module also re-subscribes every 10 minutes as a backstop
+- **Firewall**: The notification port (default 3000) must be open for incoming TCP connections from the EventMaster (Windows: network profile set to Private)
+- **Routing**: EventMaster must be able to reach your Companion system's IP address
 
 ---
 
@@ -63,29 +76,28 @@ Without live updates, changes made outside Companion show at the next polling in
 
 #### **Sources & Destinations**
 
-- **Freeze/Unfreeze Source**: Freeze or unfreeze video sources
-- **Freeze/Unfreeze Destination**: Freeze or unfreeze destination outputs
-- **Arm/Unarm Destination**: Arm, unarm or toggle a screen destination for transitions (toggle uses the armed state the frame reports; the _Arm/Unarm Destinations_ presets include a single toggle button that reads ARMED while armed). Aux arm has no toggle: the frame does not report whether an aux is armed
-- **Freeze Source (Toggle)**: Toggle, freeze or unfreeze an input source using the freeze state reported by the frame
-- **Freeze Screen Destination (Toggle)**: Toggle, freeze or unfreeze a screen destination (toggle unfreezes if any output is frozen)
-- **Freeze Aux Destination (Toggle)**: Toggle, freeze or unfreeze an aux destination
+- **Freeze Source**: Freeze, unfreeze or toggle an input source
+- **Freeze Screen Destination**: Freeze, unfreeze or toggle all outputs of a screen destination
+- **Freeze Aux Destination**: Freeze, unfreeze or toggle an AUX destination
+- **Freeze Layer**: Freeze, unfreeze or toggle a layer on PGM or PVW
+- **Arm/Unarm Destination**: Enable/disable destinations for transitions (screen destinations can also be toggled)
+- **Note:** On PDS-4K, source and destination freeze are not offered (the device accepts them but the output is not frozen); use layer freeze
 
 #### **Freeze Feedback**
 
-- **Source Frozen**: Button lights when the selected source is frozen, whoever froze it (Companion, EM Toolset or the console)
-- **Screen Destination Frozen**: Button lights when any (or all) outputs of the screen destination are frozen
-- **Aux Destination Frozen**: Button lights when the aux destination is frozen
-- Variables: `source_N_frozen` (Yes/No), `screen_N_frozen` (Yes/Partial/No), `aux_N_frozen` (Yes/No), and `source_N_label` / `screen_N_label` / `aux_N_label` (name with the frame-appended `-N` source/input number removed, e.g. `Cam 1-1` → `Cam 1`)
-- Freeze presets and dropdowns list live inputs only (stills, and destinations or user keys re-entered as sources, are left out)
-- Presets: _Freeze Sources_, _Freeze Screen Destinations_ and _Freeze Aux Destinations_ categories contain ready-made toggle buttons: they read _Freeze_ above the source name, and turn blue reading _FROZEN_ while frozen
-- Freeze made from Companion shows immediately; changes made elsewhere show within about half a second with live updates on, otherwise at the next polling interval
+- **Source Frozen**: Source is frozen
+- **Screen Destination Frozen**: Any or all outputs of the screen destination are frozen
+- **Aux Destination Frozen**: AUX destination is frozen
+- **Layer Frozen**: Layer is frozen on PGM or PVW (set the same bus as the button's action)
+- **Variables**: `source_N_frozen`, `screen_N_frozen` (Yes/Partial/No), `aux_N_frozen`, `screen_S_layer_N_pgm_frozen`, `screen_S_layer_N_pvw_frozen`; `source_N_label`, `screen_N_label` and `aux_N_label` give the name without the `-N` the EventMaster appends
+- **Presets**: _Freeze Sources_ (live inputs only), _Freeze Screen Destinations_, _Freeze Aux Destinations_ and _Freeze Layers_ (PGM and PVW per layer)
 
 #### **Arm, Signal and Test Pattern Feedback**
 
-- **Screen Destination Armed**: Button lights when the screen destination is armed (selected for transitions). The _Arm/Unarm Destinations_ Arm preset reads _ARMED_ while armed. Aux arm isn't reported by the frame, so there is no aux armed feedback
-- **Source Signal**: Button lights when an input's signal matches the chosen condition: any problem (the default: no signal, format mismatch, out of range or invalid), signal OK, or one specific condition. Stack two on a button for, say, green when OK and red when lost. `source_N_signal` shows the state as text
-- **Test Pattern Active**: Button lights when a test pattern is on a screen or aux destination: any pattern, or a chosen one. The _Test patterns_ presets show _ON_ on the active pattern, and on _Off_ while no pattern is on
-- Variables: `screen_N_armed` (Yes/No), `source_N_signal` (OK, No signal, Format mismatch, Out of range, Invalid), `screen_N_test_pattern` / `aux_N_test_pattern` (pattern name, or Off)
+- **Screen Destination Armed**: Screen destination is armed for transitions
+- **Source Signal**: Input signal problem (no signal, format mismatch, out of range, invalid), signal OK, or a specific condition
+- **Test Pattern Active**: Any, or a specific, test pattern is on a screen or AUX destination (the test pattern presets highlight the active pattern)
+- **Variables**: `screen_N_armed`, `source_N_signal`, `screen_N_test_pattern`, `aux_N_test_pattern`
 
 #### **AUX Destinations**
 
@@ -243,8 +255,9 @@ The module provides two types of source tally feedback for buttons:
 
 #### **Real-time Updates**
 
-- Both feedback types update within about half a second with **Live Updates** on, otherwise on the main polling interval
-- Changes made anywhere (Companion, EM Toolset, console) are picked up within one polling interval
+- Both feedback types update automatically when **Live Updates** are enabled
+- Updates occur within ~500ms of EventMaster content changes
+- Fallback to polling updates if live updates are disabled
 - Works with background layers, regular layers, and AUX content
 
 #### **Usage Examples**

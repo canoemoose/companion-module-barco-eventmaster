@@ -873,7 +873,7 @@ class BarcoInstance extends InstanceBase {
 			{
 				type: 'number',
 				id: 'notification_port',
-				label: 'Notification server port default 3000 (local)',
+				label: 'Notification port (this machine)',
 				width: 6,
 				default: 3000,
 				isVisible: (config) => !!config.enable_notifications,
