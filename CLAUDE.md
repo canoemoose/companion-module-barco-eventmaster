@@ -7,9 +7,10 @@ hardware by observed frame behaviour), the PR split, the claims to prove, and th
 Background, in order of usefulness: `docs/frame-test-2026-10-15-findings.md` (what the E2 actually does
 on 9.2.6318), then `HANDOFF.md` (the original brief and history; its "next job" is done).
 
-Hardware (2026-10-16): an E2 and a PDS-4K on the same network, Matt at the frames. The E2 gets a 9.2
-point release before testing, so recheck it first. IPs: ask Matt. Claude sets frames to a known state
-over JSON-RPC; programming (creating destinations) is EMT, and the PDS-4K never needs it.
+**No hardware.** The 2026-10-16 session (E2 9.2.6373, PDS-4K 9.2.5963) is over and the frames have gone.
+Everything proven is in the scope doc. Don't plan work that needs a frame: mock runs check scripts and
+code, they are not evidence. The four PR branches are cut and checked, in worktrees beside the repo
+(scope doc, "PRs").
 
 - Fork build numbering: `4.4.6-ee.N` (upstream is 4.4.5). Fork-only, never in a PR
 - Package manager: **npm** (not yarn). Don't commit changes npm makes to upstream's `yarn.lock`

@@ -12,7 +12,7 @@ Branch `fix/aux-test-pattern-off-preset` (worktree `../pr-a-aux-off-preset`), fr
 Generated with Claude Code; Claude writes better JavaScript than I do.
 Tested against actual hardware.
 
-The _Off_ button in each _Test patterns for <aux>_ preset category doesn't turn the test pattern off.
+The aux test pattern _Off_ preset doesn't turn the test pattern off.
 
 The preset sets `screenDestination`, but `testpattern_on_AUX` reads `auxDestination`, so the action
 sends `id: null` and the frame rejects it. The other 20 aux test pattern presets already use

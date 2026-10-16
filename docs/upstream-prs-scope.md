@@ -297,11 +297,33 @@ firmware it was proven on; 5 dropped.
       clearing/taking layers sends `ScreenDestChanged` (87 in 2 min, in bursts of about 30)
 - [x] Preview presets added (fork `4.4.6-ee.25`): a program and a preview button per layer, action and
       feedback bus set together; button text ends `L<n> PGM` / `L<n> PVW`
-- [ ] **Next:** Matt checks the `-ee.25` preview presets on the E2 single layer; then commit
+- [x] Matt checked the `-ee.25` preview presets (work); committed. Later fork builds: `-ee.28` test
+      pattern presets highlight by background, none on Off (`-ee.26`/`-ee.27` superseded)
 - [x] Upstream proof harness written (`frame-test-kit/upstream-proof.js`; worktree
       `../eventmaster-upstream-9f84de7`, kept for reruns; rehearsed on the mock first)
 - [x] Hardware session: module-check on both frames; upstream proofs 1 to 6 (see "Results"). Claims
       2, 3, 4 on both frames; 1 on the E2 (only it has an aux); 6 on the PDS-4K
-- [ ] **Next:** decide the PR split from the results (claim 5 out; 3 and 4 reworded), then cut
-      branches from upstream master and draft PR text
-- [ ] PR split confirmed; branches cut; PR text drafted (Matt pushes/opens)
+- [x] PR split confirmed (Matt): A to D, layer freeze inside B. Branches cut from upstream master
+      `9f84de7` (D from C), each in a worktree beside the repo, upstream tracking removed. Not pushed
+- [x] **Hardware session over (2026-10-16, Matt): no more frame access.** Left as found: E2 Layer3
+      frozen and AuxDest1X on test pattern 4 (both Matt's), nothing else frozen or on, every script
+      unsubscribed. Not seen on the PR branches, for want of a live input: PR B E2 source freeze
+      (fork code identical, watched on the output earlier) and PR D "Signal OK" (fork saw it earlier)
+
+### PRs
+
+| PR  | Branch / worktree                                           | Commit(s)            | Base   | Checked                                                                                                                                           | Draft                           |
+| --- | ----------------------------------------------------------- | -------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| A   | `fix/aux-test-pattern-off-preset`, `../pr-a-aux-off-preset` | `1358ba9`, `acba552` | master | Claim 1 rerun on the E2 (read-back); upgrade script on sample actions; surface = upstream but the Off preset                                      | `docs/prs/A-aux-off-preset.md`  |
+| B   | `feature/freeze-control-feedback`, `../pr-b-freeze`         | `19f3e8d`            | master | Lint; surface = freeze only; fork freeze and layer tests pass; both frames with polling (screen, aux, layer; PDS-4K hiding)                       | `docs/prs/B-freeze.md`          |
+| C   | `feature/live-updates-rework`, `../pr-c-live-updates`       | `44d04b6`            | master | Lint; surface = live updates variables and config wording; fork live tests 58/58 (freeze/status sections cut); claims 2 to 4 rerun on both frames | `docs/prs/C-live-updates.md`    |
+| D   | `feature/status-feedback`, `../pr-d-status-feedback`        | `c98e035`            | C      | Lint; surface over C = arm, signal, test pattern; fork live tests 83 pass (6 freeze-only fails); both frames with live updates                    | `docs/prs/D-status-feedback.md` |
+
+- B and C both change `autoPopulateSourceMonitoring`: whichever merges second needs a rebase
+- B adds `isFreezableSource`; D adds `isLiveInput` (same test, so neither depends on the other). Can be
+  merged into one once both land
+- Fork carries PR A's commits (cherry-picked, same `upgrades.js` order)
+- [ ] **Next:** Matt reviews the PR D text; then Matt pushes the branches and opens the PRs (A first;
+      D after C, or based on C's branch). Results transcripts are gitignored: attach the ones each PR
+      cites if asked
+- [ ] After merges: rebase the fork on upstream master, drop what landed
