@@ -37,6 +37,9 @@ Points that bear on the PRs and proofs:
 - **PR text opens with** (Matt, 2026-10-16): "Generated with Claude Code;
   Claude writes better JavaScript than I do. Tested against actual hardware." No footer. Drafts live
   in `docs/prs/`.
+- **Naming in PR text** (Matt): the device is "the frame" or "the Event Master frame", two words in
+  prose. `EventMaster` / `eventmaster` only where it is code (`barco-eventmaster`, `eventmaster.js`).
+  HELP.md keeps upstream's own "EventMaster"
 - **Existing buttons**: where a PR changes a preset's action options, it ships an upgrade script so
   buttons already made from it are fixed (Matt). A preset that only gains a feedback can't be
   upgraded; say so in the PR text. Upgrade scripts are indexed by Companion: keep the fork's

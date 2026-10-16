@@ -19,7 +19,7 @@ Generated with Claude Code; Claude writes better JavaScript than I do. Tested ag
 - **Freeze Aux Destination (Toggle)**: Freeze, unfreeze or toggle an AUX destination
 - **Freeze Layer (Toggle)**: Freeze, unfreeze or toggle a layer on PGM or PVW (`changeContent`
   `Layers[].Freeze`)
-- Toggle uses the freeze state reported by the EventMaster, so it is correct after a freeze from EM
+- Toggle uses the freeze state reported by the frame, so it is correct after a freeze from EM
   Toolset or the console
 
 #### **Feedbacks**
@@ -32,7 +32,7 @@ Generated with Claude Code; Claude writes better JavaScript than I do. Tested ag
 
 - `source_N_frozen`, `screen_N_frozen` (Yes/Partial/No), `aux_N_frozen`
 - `screen_S_layer_N_pgm_frozen`, `screen_S_layer_N_pvw_frozen`
-- `source_N_label`, `screen_N_label`, `aux_N_label`: Name without the `-N` the EventMaster appends
+- `source_N_label`, `screen_N_label`, `aux_N_label`: Name without the `-N` the frame appends
 
 #### **Presets**
 

@@ -1,7 +1,7 @@
 # PR A: aux test pattern Off preset
 
 Branch `fix/aux-test-pattern-off-preset` (worktree `../pr-a-aux-off-preset`), from upstream master
-`9f84de7`. Commits `35ee421`, `0ec94e4`. Title and body below are what goes on GitHub.
+`9f84de7`. Commits `1358ba9`, `acba552`. Title and body below are what goes on GitHub.
 
 ---
 
@@ -15,7 +15,7 @@ Tested against actual hardware.
 The _Off_ button in each _Test patterns for <aux>_ preset category doesn't turn the test pattern off.
 
 The preset sets `screenDestination`, but `testpattern_on_AUX` reads `auxDestination`, so the action
-sends `id: null` and the EventMaster rejects it. The other 20 aux test pattern presets already use
+sends `id: null` and the frame rejects it. The other 20 aux test pattern presets already use
 `auxDestination`; only Off had the screen option.
 
 Tested on an E2, firmware 9.2.6373, with the aux on a monitor: colour bars on the aux, then the Off
