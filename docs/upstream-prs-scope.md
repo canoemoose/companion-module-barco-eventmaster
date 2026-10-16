@@ -78,7 +78,11 @@ The behaviour each proof rests on (the reply is only supporting):
    JSON-RPC can't create destinations, assign outputs or add sources: that's EMT. The E2 is programmed
    (2 inputs, 1 screen with 4 layer entries, 1 aux, presets). The PDS-4K is never blank: it always
    has 2 or 4 screen destinations (depending on mode) and 10 inputs, and no auxes. No programming needed.
-1. Note both frames' IPs, model, firmware (`module-check.js` read-only on each).
+1. Note both frames' IPs, model, firmware (`module-check.js` read-only on each). **The E2 gets a 9.2
+   point release first (Matt, 2026-10-16).** Everything verified so far was on 9.2.6318; after the update
+   run `module-check --changes` on the E2 before anything else and compare with the 15 Oct results
+   (field shapes, notifications, aux arm read-back, `powerStatus`). Label findings by firmware version.
+   Upstream proofs run on the updated firmware, and each PR states the firmware it was proven on.
 2. Fork module on both: `module-check.js --changes` (freeze, arm, test pattern round trips). PDS-4K has
    no auxes; check whether it has `powerStatus`, which shapes it uses, which notifications fire.
 3. Upstream proofs: a harness that loads upstream `9f84de7` (git worktree, shared `node_modules`) and
