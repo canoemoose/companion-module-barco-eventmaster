@@ -49,6 +49,52 @@ Points that bear on the PRs and proofs:
 
 Split still to confirm after the hardware session.
 
+## Freeze: what the output actually does (2026-10-16)
+
+Three freezes in Event Master (Matt):
+
+- **Input**: freezes the source everywhere it is used. Green on the layer in Toolset.
+- **Layer**: freezes that layer only; the same source in another layer stays live. Can be frozen on
+  preview then transitioned, or directly on program. Blue in Toolset. The PDS-4K front-panel freeze
+  button is this one.
+- **Output**: the destination's outputs stay frozen whatever happens to the destination (transitions
+  etc.). Banner in Toolset.
+
+**Module-check's freeze "OK" only proves the read-back and the notification, not the picture.** Every
+E2 freeze result so far was watched in Toolset only, never on a monitor. PDS-4K 9.2.5963, PGM1 on a
+monitor, moving test card on HDMIInput1 in LayerA on program:
+
+| Freeze | JSON-RPC                                               | Read-back                  | Toolset         | Output                                        |
+| ------ | ------------------------------------------------------ | -------------------------- | --------------- | --------------------------------------------- |
+| Input  | `freezeDestSource` type 0                              | source `Freeze` 1          | green on layer  | not frozen                                    |
+| Layer  | `changeContent {id, Layers: [{id, Freeze: 1}]}`        | layer `Freeze` 1           | blue            | **frozen**                                    |
+| Output | `freezeDestSource` type 2                              | `DestOutMapCol` `FrzMode` 1 | nothing         | not frozen                                    |
+
+- Confirmed by a second run (11:24 to 11:26), each held 20 s with Matt on the monitor: input shows
+  active in Toolset but nothing freezes; layer shows in Toolset and freezes; output shows nothing and
+  does nothing. Full snapshot after: back to baseline
+- Front-panel freeze changed exactly one value in a full snapshot: `listContent` PGM1
+  `Layers[0].Freeze` 0 to 1. Toolset on the PDS-4K has no input or output freeze buttons.
+- Layer freeze over `changeContent` is not something the module has. It is the only freeze proven on
+  the PDS-4K output. Candidate for PR 1 (layer freeze action + feedback from `Layers[].Freeze`)
+- Once, the screen read-back straight after an output unfreeze still said `FrzMode 1`; re-read 9 s
+  later said 0. Not repeated on the next run
+- Implication for PR 1: input and output freeze can't be claimed to work on the PDS-4K.
+- **E2 9.2.6373 on a monitor (11:30 to 11:31)**, ScreenDest1X, moving source HDMIInput1X in
+  Layer2-B (layer id 3) on program, each held 20 s: **input, layer and output freeze all freeze the
+  output and show correctly in Toolset.** Same calls as the PDS-4K table. Full snapshot after: back to
+  baseline.
+- **E2 aux on a monitor (11:32 to 11:34)**, AuxDest1X, program source HDMIInput1X: aux freeze
+  (`freezeDestSource` type 3, aux `FrzMode`) freezes the aux and shows in Toolset; input freeze of
+  HDMIInput1X freezes the aux too. Auxes have no layers. **So on the E2 all four freezes work.**
+- Matt then added a native background, HDMIBackground1-5 (source id 4, `InputCfgIndex` 2,
+  `SrcType` 0), to see whether a background freezes like an input. **E2 background on a monitor
+  (11:37 to 11:38)**, input 2 with signal, background on ScreenDest1X program (`BGLyr`
+  `LastBGSourceIndex` 0, no layers on program), each held 20 s: `freezeDestSource` type 0 id 4 (as an
+  input) and type 1 id 0 (as a background) both freeze the output, Toolset shows the same for both,
+  and both set the same field, source 4 `Freeze`. So a native background is an input source as far
+  as freeze goes; the module's source freeze covers it. (Background index 0 maps to source id 4 here.)
+
 ## Upstream claims to prove on hardware
 
 Retracted: "screen freeze feedback broken upstream". Upstream has no screen freeze feedback at all.
@@ -99,9 +145,40 @@ The behaviour each proof rests on (the reply is only supporting):
       pattern feedback, aux freeze
 - [x] E2 baseline on 9.2.6318 before the point release (2026-10-16 09:32, input 1 with signal): all
       checks OK. `frame-test-kit/results/module-check_E2_9.2.6318_2026-10-16-09-32-32.txt`
-- [ ] **Next:** after the E2 point release, `module-check.js --changes` on the E2 (E2 at 192.168.0.175,
-      laptop 192.168.0.100; use `--port 3006` if 3005 is busy) and compare with that baseline; then
-      the PDS-4K (IP: ask Matt)
+- [x] E2 after the point release, **9.2.6373 / OS 3.1.6** (2026-10-16 09:52): all checks OK, same as
+      the 9.2.6318 baseline. Same source/screen/aux fields (`DestOutMapCol`/`FrzMode` unchanged; aux
+      still has no armed field), same `powerStatus` shape, same notification per change, similar
+      timings. The update left the screen armed (`IsActive` 1, so the first run at 09:49 skipped arm);
+      Claude unarmed it over JSON-RPC (read-back `IsActive` 0) and reran.
+      `frame-test-kit/results/module-check_E2_9.2.6373_2026-10-16-09-52-36.txt`. Upstream proofs on the
+      E2 run on 9.2.6373
+- [x] PDS-4K at 192.168.0.194, **9.2.5963 / OS 192.5.16**. First run (09:53): 6 checks failed, all
+      from one cause (`module-check_PDS-4K_9.2.5963_2026-10-16-09-53-27.txt`). After the fix, screens
+      unarmed and input 1 with signal (09:58): **all checks OK**, including source freeze, screen
+      freeze, arm toggle and test pattern, one notification each, timings like the E2. But on the
+      monitor only layer freeze works: see "Freeze: what the output actually does".
+      `frame-test-kit/results/module-check_PDS-4K_9.2.5963_2026-10-16-09-58-54.txt`
+  - **Fork bug, fixed: subscribe rejected.** The fork subscribed to 11 types including
+    `NativeRateChanged`; the PDS-4K refuses the whole request: `success -1`,
+    `"NativeRateChanged is not applicable for PDS."` Probed one type at a time: the other 10 are
+    accepted (even `AUXDestChanged`, with no auxes). Upstream subscribes to `ScreenDestChanged` +
+    `AUXDestChanged` only, so upstream is not affected: not an upstream claim. Fix (Matt's choice):
+    drop `NativeRateChanged` from the module's and the kit's lists; the 5-minute full refresh covers
+    native rate changes. `mock-frame.js --pds` now rejects it like the hardware; `npm test` checks the
+    module leaves it out. PR 2 must not list it
+  - Port 9999 refused a connection (`ECONNREFUSED`) on the request straight after a rejected
+    subscribe, twice (module-check and the probe); not seen in the run after the fix. Not chased
+  - Shapes match the E2 on 9.2.6318: source `Freeze` + `InputCfgVideoStatus`, screen
+    `DestOutMapCol`/`FrzMode`, content `IsActive` + `TestPatternMode`. 2 screens (PGM1, PGM2), 2
+    layers, no auxes, 10 inputs. `powerStatus` reports one supply only (`PowerSupply1Status`), so
+    `power_status2` shows "Unknown"
+  - Frame state found at 09:53: both screens armed; no input had signal (`InputCfgVideoStatus` 4, no
+    sync). Claude unarmed both screens over JSON-RPC (read-back `IsActive` 0); input 1 had signal by
+    09:58
+- [x] PDS-4K freezes rechecked on the monitor (11:24): only layer freeze works
+- [ ] **Next:** the E2 on a monitor: input, layer (`changeContent`), output and aux freeze, each held
+      20 s
+- [ ] Decide what PR 1 claims per model from the monitor results
 - [ ] Upstream proof harness written (not started; loads `9f84de7` via a git worktree sharing
       `node_modules`; rehearse on mock for correctness only)
 - [ ] Hardware session: module-check on both frames; upstream proofs 1 to 5
