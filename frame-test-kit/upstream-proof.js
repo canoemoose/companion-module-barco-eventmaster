@@ -232,11 +232,13 @@ Module._load = function (req) {
 	return origLoad.apply(this, arguments)
 }
 
+// The checkout's commit (and branch, if it's on one)
 function upstreamCommit() {
 	try {
-		const head = fs.readFileSync(path.join(UPSTREAM, '.git'), 'utf8')
-		const gitdir = head.match(/gitdir: (.*)/)?.[1]?.trim()
-		return fs.readFileSync(path.join(gitdir, 'HEAD'), 'utf8').trim().slice(0, 7)
+		const out = require('child_process')
+			.execFileSync('git', ['-C', UPSTREAM, 'log', '-1', '--format=%h%d'], { encoding: 'utf8' })
+			.trim()
+		return out || 'unknown'
 	} catch {
 		return 'unknown'
 	}
@@ -291,7 +293,8 @@ const CLAIMS = {
 				.flatMap((a) => [].concat(a?.TestPattern ?? []))
 				.map((x) => x.TestPatternMode)
 		}
-		say(`READ aux ${auxId} TestPatternMode before: ${JSON.stringify(await tp())}`)
+		const found = (await tp())[0] ?? 0
+		say(`READ aux ${auxId} TestPatternMode before: ${found} (put back at the end)`)
 		say(`STEP 1: color bars on aux ${auxId} from another client (watch the aux output: bars should appear)`)
 		await call('changeAuxContent', { id: auxId, TestPattern: 3 })
 		await wait(1500)
@@ -306,7 +309,8 @@ const CLAIMS = {
 		inst.actions.testpattern_on_AUX.callback({ options: { auxDestination: String(auxId), testPattern: '0' } })
 		await wait(3000)
 		say(`READ aux ${auxId} TestPatternMode after the control: ${JSON.stringify(await tp())}`)
-		await call('changeAuxContent', { id: auxId, TestPattern: 0 }) // put back
+		await call('changeAuxContent', { id: auxId, TestPattern: found }) // put back as found
+		say(`READ aux ${auxId} TestPatternMode put back: ${JSON.stringify(await tp())}`)
 		return inst
 	},
 
